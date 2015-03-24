@@ -1,0 +1,3186 @@
+#!/bin/csh
+#PBS -l walltime=30:00:00
+#PBS -l nodes=45
+#PBS -q batch
+#PBS -N aredi2400_new_diag
+#PBS -e /home/pradalma/model_output/aredi2400_new_diag
+#PBS -o /home/pradalma/model_output/aredi2400_new_diag
+#PBS -r y
+
+
+#=======================================================================
+#FMS run script created at 2013-01-21T14:43:45 via:
+# /home/pradalma/fre3/bin/frerun --target=exec --xmlfile=/home/pradalma/Riga/xml/aredi2400_new_diag.xml aredi2400_new_diag
+#=======================================================================
+  unalias *
+  set echo
+#
+# Source the fre3 site rc file
+#
+if (! $?FREROOT) then
+  source $HOME/fre3/site/fre.cshrc
+endif
+limit stacksize    unlimited
+limit coredumpsize unlimited
+########################################################################
+#-------------------- variables set by frerun --------------------------
+########################################################################
+  set name = aredi2400_new_diag
+  set rtsxml = /home/pradalma/Riga/xml/aredi2400_new_diag.xml
+  set work = /home/pradalma/scratch/TMPDIR.$$
+  set root = /home/pradalma/Riga
+  set archive = /scratch0/anand-fs1/RUNS/Riga/riga_rds/CM2Mc_Control-1900
+  setenv FREROOT /home/pradalma/fre3
+  set scriptName = /home/pradalma/Riga/scripts/aredi2400_new_diag
+  set outputDir = /scratch0/anand-fs1/RUNS/Riga/riga_rds/CM2Mc_Control-1900/aredi2400_new_diag
+  set gridSpec = /home/rdslater/GFDL/archive/fms/mom4/mom4p1/quebec/bling/mosaic.nc
+  set initCond = /home/pradalma/archiverds/15000101.cpio
+  set executable = /home/pradalma/Riga/CM2M_compile/exec-hpcs/fms_CM2M_compile.x
+  set npes = 45
+  set monthslist = ( 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 )
+  set dayslist = ( 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 )
+  set numSubmissions = 25 
+  set combineFreq = 1
+  set baseDate = '1 1 1 0 0 0'
+
+########################################################################
+#------------------------ default variables ----------------------------
+########################################################################
+#Sets up/copies data sets used by various FMS modules. 
+  alias get_fms_data    "/home/rdslater/fms/bin/get_fms_data"
+#Generates string date for file name labels
+  alias time_stamp      "/home/rdslater/fms/bin/time_stamp.csh"
+#RTS Postprocessing Utility
+  alias frepp           "/bin/true"
+#for local_combine of regional files
+  alias mppnccombine    "/home/rdslater/fms/bin/mppnccombine"
+
+########################################################################
+#---------- only highly premeditated user changes below here -----------
+########################################################################
+#platform_csh_from_xml
+
+	#source /home/rdslater/common/bin/modules.csh
+        #module purge
+        #module load intel/intel-v11.1.056
+        #module load openmpi/1.4.1-intel-v11.0-ofed
+        #module load netcdf/4.0.1_nc3_intel
+        #module load nco/3.9.9-intel
+        #module load hdf5/183-v18-openmpi
+        #module load java/ibm-java-x86_64-60
+        setenv NC_BLKSZ 64K
+        setenv MPI_COREDUMP_DEBUGGER `which idb`
+
+	#module list
+      
+  if ( $#dayslist != $#monthslist ) then
+    unset echo
+    echo "ERROR: dayslist and monthslist must be lists of the same length"
+    exit 1
+  endif
+  set runsPerScript = $#dayslist
+  echo $name
+  echo ${npes}pe_${runsPerScript}run
+
+
+
+# --- exit if not running on hpcs ---
+  set machine = `uname -m`
+  if ( $machine != "i686" && $machine != "x86_64" ) then
+    unset echo
+    echo "ERROR: $scriptName intended for platform i686/x86_64"
+    exit 1
+  endif
+
+# --- set up variables for looping and reloading ---
+  set combine_list = ( )
+  set irun = 1
+
+  set ireload = 1
+  set reload_file = $outputDir/ascii/reload_commands
+
+  #source reload commands
+  if ( -d $outputDir )  then
+    if ( -f $reload_file ) then
+      if ( -r $reload_file ) then
+        source $reload_file
+      else
+        unset echo
+        echo "ERROR: reload file is not readable: $reload_file"
+        exit 1
+      endif
+    endif
+  else
+    mkdir -p $outputDir
+  endif
+
+  #set up queue variables
+  set alloc = $numSubmissions
+  @ alloc--     #subtract current run
+  set windf = 0
+  set queue_file = $outputDir/ascii/queue_commands
+
+  #source queue commands
+  if ( -f $queue_file ) then
+    if ( -r $queue_file ) then
+      source $queue_file
+    else
+      unset echo
+      echo "ERROR: queue file is not readable: $queue_file"
+      exit 1
+    endif
+  endif
+  if ( $?stop ) then
+    unset echo
+    echo "NOTE: Stopping execution"
+    exit 0
+  endif
+ 
+
+
+# --- set up working directory structure ---
+  if ( ! -d $work ) mkdir -p $work 
+  if ( ! -d $work ) then
+    echo "ERROR: $work exists, but is not a directory."
+    exit 1
+  endif
+
+  #can we find a way to preserve any previously extracted datasets
+  #while safely removing everything else, for development work?
+  rm -rf $work/* >& /dev/null
+  cd $work
+  if ( ! -d INPUT ) mkdir INPUT 
+  if ( ! -d INPUT ) then
+    echo "ERROR: $work/INPUT/ exists, but is not a directory."
+    exit 1
+  endif
+
+  mkdir RESTART
+  if ( ! -d RESTART ) then
+    echo "ERROR: $work/RESTART/ exists, but is not a directory."
+    exit 1
+  endif
+
+# --- copy to INPUT,WORKDIR ---
+
+  echo get_data
+
+  get_fms_data \
+    amip1 \
+    seaesf \
+    albedo \
+    lad \
+    topog \
+    ggrpsst \
+    mom4 \
+    /home/rdslater/GFDL/archive/edg/fms/river_routes_gt74Sto61S=river_destination_field \
+    /home/rdslater/GFDL/archive/fms/mom4/mom4p1/mom4p1a/mom4_ecosystem/preprocessing/rho0_profile.nc \
+    /home/rdslater/GFDL/archive/fms/mom4/mom4p0/mom4p0c/mom4_test8/preprocessing/fe_dep_ginoux_gregg_om3_bc.nc=Soluble_Fe_Flux_PI.nc \
+    /home/rdslater/GFDL/archive/jwd/regression_data/esm2.1/input/cover_type_1860_g_ens=cover_type_field \
+    /home/rdslater/GFDL/archive/jwd/regression_data/esm2.1/input/soil_color.nc \
+    /home/rdslater/GFDL/archive/jwd/regression_data/esm2.1/input/biodata.nc \
+    /home/rdslater/GFDL/archive/jwd/regression_data/esm2.1/input/ground_type.nc \
+    /home/rdslater/GFDL/archive/jwd/regression_data/esm2.1/input/groundwater_residence.nc \
+    /home/rdslater/GFDL/archive/ms2/esm2.1/input/max_water.nc \
+    /home/rdslater/GFDL/archive/jwd/regression_data/esm2.1/input/frac.1990.nc=veg_fractions.nc \
+    /home/rdslater/GFDL/archive/jwd/regression_data/esm2.1/input/soil_albedo_semidark_v1.nc=soil_albedo.nc \
+    /home/rdslater/GFDL/archive/jwd/regression_data/esm2.1/input/01010101.static.nc=static_veg_data.nc \
+    /home/rdslater/GFDL/archive/edg/fms/aerosol.ginoux_sea_salt.climatology.nc=aerosol.climatology.nc \
+    /home/rdslater/GFDL/archive/rds/IPCC/data/cfc11_cfc12_cfc113_ccl4_atm_am2_m30_bc-1-9999.nc=cfc.bc.nc \
+    /home/rdslater/GFDL/archive/rds/IPCC/data/ocmip2_siple_co2_atm_am2_m30_bc-1-9999.nc=ocmip2_siple_co2_atm_am2_bc-1-9999.nc \
+    /home/rdslater/GFDL/archive/edg/fms/om1p7/ocmip2_abiotic_c14_atm_hist_om1p7_bc-1-9999.nc=c14_atm_hist.nc \
+    /home/rdslater/GFDL/archive/jgj/omsk/prep/coarse_model/mom4p1/coarse_model_om1p7h_basin_mask.nc=restore_mask.nc \
+    /home/rdslater/GFDL/archive/jgj/omsk/prep/coarse_model/mom4p1/coarse_model_om1p7h_basin_mask.nc=basin_mask.nc \
+    /home/rdslater/GFDL/archive/jgj/omsk/prep/coarse_model/mom4p1/coarse_model_om1p7h_basin_mask.nc=mixdownslope_mask.nc \
+    /home/rdslater/GFDL/archive/edg/fms/om1p7/tideamp_ave_Tpoint.nc=tideamp.nc \
+    /home/rdslater/GFDL/archive/edg/fms/om1p7/rough_patched_Tpoint.nc=roughness_amp.nc \
+    /home/rdslater/GFDL/archive/edg/fms/om1p7/chlorophyll_fix.nc=chl.nc \
+    /home/rdslater/GFDL/archive/edg/fms/om1p7/bianchi_heatflux.nc=geothermal_heating.nc \
+    /home/rdslater/GFDL/archive/b1d/omsk/preprocessing/src_helium_final_time12dim_v1.nc=src_he_depth.nc \
+    /home/rdslater/GFDL/archive/b1d/omsk/preprocessing/src_helium_final_time12dim_y2s_v2.nc=src_he3.nc \
+    /home/rdslater/GFDL/archive/b1d/omsk/preprocessing/src_helium_final_time12dim_y2s_v3.nc=src_he4.nc \
+    /home/rdslater/GFDL/archive/jwd/regression_data/esm2.1/input/depflux_total.mean.1860.nc \
+    /home/rdslater/GFDL/archive/edg/fms/grids/om1p7p_mosaic/atmos_hgrid.nc \
+    /home/rdslater/GFDL/archive/edg/fms/grids/om1p7p_mosaic/atmos_mosaic.nc \
+    /home/rdslater/GFDL/archive/edg/fms/grids/om1p7p_mosaic/atmos_mosaicXland_mosaic.nc \
+    /home/rdslater/GFDL/archive/edg/fms/grids/om1p7p_mosaic/atmos_mosaicXocean_mosaic.nc \
+    /home/rdslater/GFDL/archive/edg/fms/grids/om1p7p_mosaic/land_hgrid.nc \
+    /home/rdslater/GFDL/archive/edg/fms/grids/om1p7p_mosaic/land_mosaic.nc \
+    /home/rdslater/GFDL/archive/edg/fms/grids/om1p7p_mosaic/land_mosaicXocean_mosaic.nc \
+    /home/rdslater/GFDL/archive/edg/fms/grids/om1p7p_mosaic/ocean_hgrid.nc \
+    /home/rdslater/GFDL/archive/edg/fms/grids/om1p7p_mosaic/ocean_mosaic.nc \
+    /home/rdslater/GFDL/archive/edg/fms/grids/om1p7p_mosaic/ocean_vgrid.nc \
+    /home/rdslater/GFDL/archive/edg/fms/grids/om1p7p_mosaic/topog.nc
+
+  if ( $status != 0 ) then
+    unset echo
+    echo "ERROR: get_fms_data failed"
+    exit 1
+  endif
+
+  cd INPUT
+
+  set gridSpecStatus = 0 
+
+  if ( $gridSpec:e == 'cpio' ) then
+    cpio -C 524288 -ivI $gridSpec
+    set gridSpecStatus = $status
+  else if ( $gridSpec:e == 'tar' ) then
+    tar xvf $gridSpec
+    set gridSpecStatus = $status
+  else if ( $gridSpec:e == 'tgz' ) then
+    tar xzf $gridSpec
+    set gridSpecStatus = $status
+  else if ( $gridSpec != "") then
+    cp -p $gridSpec grid_spec.nc
+    set gridSpecStatus = $status
+  endif
+
+  if ( $gridSpecStatus != 0 ) then
+    unset echo
+    echo "ERROR: Failed to copy grid_spec file"
+    exit 1
+  endif
+
+  unset gridSpecStatus 
+
+  set initCondStatus = 0 
+
+  if ( $initCond:e == 'cpio' ) then
+    cpio -C 524288 -ivI $initCond
+    set initCondStatus = $status
+  else if ( $initCond:e == 'tar' ) then
+    tar xvf $initCond
+    set initCondStatus = $status
+  else if ( $initCond:e == 'tgz' ) then
+    tar xzf $initCond
+    set initCondStatus = $status
+  else if ( $initCond != "") then
+    cp -p $initCond .
+    set initCondStatus = $status
+  endif
+
+  if ( $initCondStatus != 0 ) then
+    unset echo
+    echo "ERROR: Failed to copy initial conditions"
+    exit 1
+  endif
+
+  unset initCondStatus 
+
+#input_csh_from_xml
+
+        
+          ncrename --variable fe_dep,FLUX                  Soluble_Fe_Flux_PI.nc
+          ncrename --variable BASIN_MASK,restore_mask      restore_mask.nc
+          ncrename --variable BASIN_MASK,basin_mask        basin_mask.nc
+          ncrename --variable BASIN_MASK,mixdownslope_mask mixdownslope_mask.nc
+          ncrename --variable h_amp,roughness_amp          roughness_amp.nc
+
+          #
+          #     Remove the radiation driver restart file is the last dimension
+          #     is only 3, as the Riga code has 4 levels
+          #
+
+          ncdump -h radiation_driver.res.nc | grep zaxis_4 | grep = | grep 3
+          if ($status == 0) then
+            rm radiation_driver.res.nc
+          endif
+
+          #
+          #     Rename the following flux terms from the ocean so they will not be read in
+          #     since they are incorrect with the split Schmidt number flux impementation.
+          #     We need to keep the file, though, as the C14 terms use the old implementation.
+          #     We keep the ice restart file intact, as its fluxes should be OK.
+          #
+          ncdump -h ocean_bling_airsea_flux.res.nc | grep co2_flux | grep schmidt
+          if ( $status != 0 ) then
+            cpget    ocean_bling_airsea_flux.res.nc
+            ncrename ocean_bling_airsea_flux.res.nc  -v co2_flux_alpha_ocn,co2_flux_alpha_ocn_not_used
+            ncrename ocean_bling_airsea_flux.res.nc  -v co2_flux_csurf_ocn,co2_flux_csurf_ocn_not_used
+            ncrename ocean_bling_airsea_flux.res.nc  -v o2_flux_alpha_ocn,o2_flux_alpha_ocn_not_used
+            ncrename ocean_bling_airsea_flux.res.nc  -v o2_flux_csurf_ocn,o2_flux_csurf_ocn_not_used
+          endif
+          #
+          # rename co2_sat_flux terms from previous version, if they are present
+          # so they will not be used
+          #
+          ncdump -h ocean_bling_airsea_flux.res.nc | grep co2_sat_flux | grep temp
+          if ( $status != 0 ) then
+            ncdump -h ocean_bling_airsea_flux.res.nc | grep co2_sat_flux
+            if ( $status == 0 ) then
+              cpget    ocean_bling_airsea_flux.res.nc
+              ncrename ocean_bling_airsea_flux.res.nc  -v co2_sat_flux_alpha_ocn,co2_sat_flux_alpha_ocn_old
+              ncrename ocean_bling_airsea_flux.res.nc  -v co2_sat_flux_csurf_ocn,co2_sat_flux_csurf_ocn_old
+
+              cpget    ice_bling.res.nc
+              ncrename ice_bling.res.nc  -v co2_sat_flux_flux_ice,co2_sat_flux_flux_ice_old
+            endif
+          endif
+
+          #
+          #       set the output frequency for the diagnostics
+          #
+
+          set eight_diag_frequency = ' 3,  "hours", 1, "days"'
+          set daily_diag_frequency = '24,  "hours", 1, "days"'
+          set timestep_diag_frequency = '0,  "hours", 1, "hours"'
+          if ( $monthslist[1] == 0 ) then
+            if ( $#dayslist == 1 && $dayslist[1] == 1 ) then
+              set month_diag_frequency = "$timestep_diag_frequency"
+            else
+              set month_diag_frequency = "$daily_diag_frequency"
+            endif
+          else
+            set month_diag_frequency = ' 1, "months", 1, "days"'
+          endif
+
+        
+      
+
+  cd $work
+  cp $executable $executable:t
+
+  cat >> diag_table <<EOF
+aredi2400_new_diag
+1 1 1 0 0 0
+
+# 
+#=============================================================================================
+#
+#====This file can be used with diag_manager/v2.0a (or higher)====
+#
+#
+#  FORMATS FOR FILE ENTRIES (not all input values are used)
+#  ------------------------
+#
+#"file_name", output_freq, "output_units", format, "time_units", "long_name",
+#
+#
+#output_freq:  > 0  output frequency in "output_units"
+#              = 0  output frequency every time step
+#              =-1  output frequency at end of run
+#
+#output_units = units used for output frequency
+#               (years, months, days, minutes, hours, seconds)
+#
+#time_units   = units used to label the time axis
+#               (days, minutes, hours, seconds)
+#
+#
+#  FORMAT FOR FIELD ENTRIES (not all input values are used)
+#  ------------------------
+#
+#"module_name", "field_name", "output_name", "file_name" "time_sampling", time_avg, "other_opts", packing
+#
+#time_avg = .true. or .false.
+#
+#packing  = 1  double precision
+#         = 2  float
+#         = 4  packed 16-bit integers
+#         = 8  packed 1-byte (not tested?)
+#=============================================================================================
+## output files
+#"atmos_8xdaily",         $eight_diag_frequency, "time",
+ "atmos_8xdaily_instant", $eight_diag_frequency, "time",
+ "atmos_month",           $month_diag_frequency, "time",
+ "atmos_daily",           $daily_diag_frequency, "time",
+ "atmos_month_aer",       $month_diag_frequency, "time",
+ "atmos_scalar",          $month_diag_frequency, "time",
+ "ice_month",             $month_diag_frequency, "time",
+ "land_instant",          $month_diag_frequency, "time",
+ "land_month",            $month_diag_frequency, "time",
+ "ocean_month",           $month_diag_frequency, "time",
+ "ocean_tracers",         $month_diag_frequency, "time",
+ "ocean_scalar",          $month_diag_frequency, "time"
+
+#
+## output variables
+#
+## daily ouput
+
+"moist",     "precip",                 "precip",       "atmos_daily", "all", .true., "none", 2
+## 8xdaily output
+## "flux" forcing fields for land model: wind, q_ref atmos_8xdaily
+#"dynamics",  "ps",                     "ps",           "atmos_8xdaily", "all", .true., "none", 2
+#"flux",      "wind",                   "wind",         "atmos_8xdaily", "all", .true., "none", 2
+#"flux",      "q_ref",                  "q_ref",        "atmos_8xdaily", "all", .true., "none", 2
+#"moist",     "precip",                 "precip",       "atmos_8xdaily", "all", .true., "none", 2
+#"radiation", "flux_sw_down_total_dif", "swdn_tot_dif", "atmos_8xdaily", "all", .true., "none", 2
+#"radiation", "flux_sw_down_total_dir", "swdn_tot_dir", "atmos_8xdaily", "all", .true., "none", 2
+#"radiation", "flux_sw_down_vis_dif",   "swdn_vis_dif", "atmos_8xdaily", "all", .true., "none", 2
+#"radiation", "flux_sw_down_vis_dir",   "swdn_vis_dir", "atmos_8xdaily", "all", .true., "none", 2
+#"radiation", "lwdn_sfc",               "lwdn_sfc",     "atmos_8xdaily", "all", .true., "none", 2
+#
+## instantaneous output
+ "flux",      "t_ref",                  "t_ref",        "atmos_8xdaily_instant","all",.false., "none", 2
+#
+#
+#==================
+# OCEAN DIAGNOSTICS (MOM4P1)
+#==================
+#
+## grid quantities
+ "ocean_model","area_t","area_t","ocean_month","all",.false.,"none",2
+ "ocean_model","area_u","area_u","ocean_month","all",.false.,"none",2
+#
+ "ocean_model","dzt","dht","ocean_month","all",.true.,"none",2
+ "ocean_model","rho_dzt","rho_dzt","ocean_month","all",.true.,"none",2
+ "ocean_model","dzu","dhu","ocean_month","all",.true.,"none",2
+ "ocean_model","dst","dst","ocean_month","all",.true.,"none",2
+#
+ "ocean_model","geolat_c","geolat_c","ocean_month","all",.false.,"none",2
+ "ocean_model","geolon_c","geolon_c","ocean_month","all",.false.,"none",2
+ "ocean_model","geolat_t","geolat_t","ocean_month","all",.false.,"none",2
+ "ocean_model","geolon_t","geolon_t","ocean_month","all",.false.,"none",2
+ "ocean_model","ht","ht","ocean_month","all",.false.,"none",2
+ "ocean_model","hu","hu","ocean_month","all",.false.,"none",2
+# "ocean_model","rescale_rho0_mask","rescale_rho0_mask","ocean_month","all",.false.,"none",2
+#
+
+## scalars
+"ocean_model","total_ocean_river","total_ocean_river","ocean_scalar","all",.true.,"none",2
+"ocean_model","total_ocean_evap","total_ocean_evap","ocean_scalar","all",.true.,"none",2
+"ocean_model","total_ocean_pme_sbc","total_ocean_pme_sbc","ocean_scalar","all",.true.,"none",2
+"ocean_model","total_ocean_fprec","total_ocean_fprec","ocean_scalar","all",.true.,"none",2
+"ocean_model","total_ocean_lprec","total_ocean_lprec","ocean_scalar","all",.true.,"none",2
+"ocean_model","total_ocean_calving","total_ocean_calving","ocean_scalar","all",.true.,"none",2
+"ocean_model","total_ocean_runoff","total_ocean_runoff","ocean_scalar","all",.true.,"none",2
+"ocean_model","total_ocean_salt","salt_total","ocean_scalar","all",.true.,"none",2
+"ocean_model","total_ocean_heat","temp_total","ocean_scalar","all",.true.,"none",2
+"ocean_model","total_ocean_hflux_pme","total_ocean_hflux_pme","ocean_scalar","all",.true.,"none",2
+"ocean_model","total_ocean_hflux_river","total_ocean_hflux_river","ocean_scalar","all",.true.,"none",2
+"ocean_model","ke_tot","ke_tot","ocean_scalar","all",.true.,"none",2
+"ocean_model","pe_tot","pe_tot","ocean_scalar","all",.true.,"none",2
+#
+# sea level related scalars
+"ocean_model","eta_global","eta_global","ocean_scalar","all",.true.,"none",2
+"ocean_model","eta_nonbouss_global","eta_nonbouss_global","ocean_scalar","all",.true.,"none",2
+"ocean_model","eta_steric_global","eta_steric_global","ocean_scalar","all",.true.,"none",2
+"ocean_model","eta_nonsteric_global","eta_nonsteric_global","ocean_scalar","all",.true.,"none",2
+"ocean_model","eta_dynamic_global","eta_dynamic_global","ocean_scalar","all",.true.,"none",2
+"ocean_model","eta_water_global","eta_water_global","ocean_scalar","all",.true.,"none",2
+"ocean_model","eta_source_global","eta_source_global","ocean_scalar","all",.true.,"none",2
+#"ocean_model","eta_surf_temp_global","eta_surf_temp_global","ocean_scalar","all",.true.,"none",2
+#"ocean_model","eta_surf_salt_global","eta_surf_salt_global","ocean_scalar","all",.true.,"none",2
+#"ocean_model","eta_surf_water_global","eta_surf_water_global","ocean_scalar","all",.true.,"none",2
+#"ocean_model","eta_bott_temp_global","eta_bott_temp_global","ocean_scalar","all",.true.,"none",2
+#
+## salt/temp fluxes and tendencies
+ "ocean_model","temp_xflux_adv","temp_xflux_adv","ocean_month","all",.true.,"none",2
+ "ocean_model","temp_yflux_adv","temp_yflux_adv","ocean_month","all",.true.,"none",2
+ "ocean_model","temp_zflux_adv","temp_zflux_adv","ocean_month","all",.true.,"none",2
+ "ocean_model","salt_xflux_adv","salt_xflux_adv","ocean_month","all",.true.,"none",2
+ "ocean_model","salt_yflux_adv","salt_yflux_adv","ocean_month","all",.true.,"none",2
+ "ocean_model","salt_zflux_adv","salt_zflux_adv","ocean_month","all",.true.,"none",2
+ "ocean_model","temp_vdiffuse_impl","temp_vdiffuse_impl","ocean_month","all",.true.,"none",2
+ "ocean_model","salt_vdiffuse_impl","salt_vdiffuse_impl","ocean_month","all",.true.,"none",2
+ "ocean_model","temp_tendency","temp_tendency","ocean_month","all",.true.,"none",2
+ "ocean_model","salt_tendency","salt_tendency","ocean_month","all",.true.,"none",2
+# "ocean_model","temp_tendency_expl","temp_tendency_expl","ocean_month","all",.true.,"none",2
+# "ocean_model","salt_tendency_expl","salt_tendency_expl","ocean_month","all",.true.,"none",2
+ "ocean_model","neutral_temp","neutral_temp","ocean_month","all",.true.,"none",2
+ "ocean_model","neutral_salt","neutral_salt","ocean_month","all",.true.,"none",2
+ "ocean_model","temp_submeso","temp_submeso","ocean_month","all",.true.,"none",2
+ "ocean_model","salt_submeso","salt_submeso","ocean_month","all",.true.,"none",2
+ "ocean_model","temp_nonlocal_KPP","temp_nonlocal_KPP","ocean_month","all",.true.,"none",2
+ "ocean_model","salt_nonlocal_KPP","salt_nonlocal_KPP","ocean_month","all",.true.,"none",2
+ "ocean_model","neutral_temp_vdiffuse","neutral_temp_vdiffuse","ocean_month","all",.true.,"none",2
+ "ocean_model","neutral_salt_vdiffuse","neutral_salt_vdiffuse","ocean_month","all",.true.,"none",2
+#
+## prognostic fields
+ "ocean_model","patm_t","patm_t","ocean_month","all",.true.,"none",2
+ "ocean_model","pbot0","pbot0","ocean_month","all",.false.,"none",2
+# "ocean_model","anompb","anompb","ocean_month","all",.true.,"none",2
+ "ocean_model","pbot_t","pbot_t","ocean_month","all",.true.,"none",2
+#
+# surface height related fields
+ "ocean_model","eta_t","eta_t","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_u","eta_u","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_nonbouss","eta_nonbouss","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_nonsteric","eta_nonsteric","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_steric","eta_steric","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_water","eta_water","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_dynamic","eta_dynamic","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_source","eta_source","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_surf_temp","eta_surf_temp","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_surf_salt","eta_surf_salt","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_surf_water","eta_surf_water","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_bott_temp","eta_bott_temp","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_tend","eta_tend","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_dynamic_tend","eta_dynamic_tend","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_water_tend","eta_water_tend","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_steric_tend","eta_steric_tend","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_stemp_forcing","eta_stemp_forcing","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_btemp_forcing","eta_btemp_forcing","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_salt_forcing","eta_salt_forcing","ocean_month","all",.true.,"none",2
+# "ocean_model","eta_water_forcing","eta_water_forcing","ocean_month","all",.true.,"none",2
+#
+# "ocean_model","urhod","urhod","ocean_month","all",.true.,"none",2
+# "ocean_model","vrhod","vrhod","ocean_month","all",.true.,"none",2
+ "ocean_model","age_global","age_global","ocean_month","all",.true.,"none",2
+ "ocean_model","salt","salt","ocean_month","all",.true.,"none",2
+# "ocean_model","salt_rhodzt","salt_rhodzt","ocean_month","all",.true.,"none",2
+ "ocean_model","temp","temp","ocean_month","all",.true.,"none",2
+# "ocean_model","temp_rhodzt","temp_rhodzt","ocean_month","all",.true.,"none",2
+ "ocean_model","con_temp","con_temp","ocean_month","all",.true.,"none",2
+# "ocean_model","pot_temp","temp","ocean_month","all",.true.,"none",2
+ "ocean_model","u","u","ocean_month","all",.true.,"none",2
+ "ocean_model","v","v","ocean_month","all",.true.,"none",2
+#
+# surface and bottom fields monthly output
+ "ocean_model","surface_temp","sst","ocean_month","all",.true.,"none",2
+ "ocean_model","surface_salt","sss","ocean_month","all",.true.,"none",2
+ "ocean_model","usurf","u_surf","ocean_month","all",.true.,"none",2
+ "ocean_model","vsurf","v_surf","ocean_month","all",.true.,"none",2
+ "ocean_model","ubott","u_bott","ocean_month","all",.true.,"none",2
+ "ocean_model","vbott","v_bott","ocean_month","all",.true.,"none",2
+ "ocean_model","bottom_temp","bottom_temp","ocean_month","all",.true.,"none",2
+ "ocean_model","bottom_salt","bottom_salt","ocean_month","all",.true.,"none",2
+ "ocean_model","bottom_age_global","bottom_age_global","ocean_month","all",.true.,"none",2
+#
+## diagnostic fields
+ "ocean_model","hblt","hblt","ocean_month","all",.true.,"none",2
+ "ocean_model","mld","mld","ocean_month","all",.true.,"none",2
+ "ocean_model","neutral_rho","neutral_rho","ocean_month","all",.true.,"none",2
+# "ocean_model","pot_rho","pot_rho_2k","ocean_month","all",.true.,"none",2
+# "ocean_model","pot_rho_0","pot_rho_0","ocean_month","all",.true.,"none",2
+ "ocean_model","potrho_mix_base","potrho_mix_base","ocean_month","all",.true.,"none",2
+ "ocean_model","potrho_mix_depth","potrho_mix_depth","ocean_month","all",.true.,"none",2
+ "ocean_model","press","press","ocean_month","all",.true.,"none",2
+ "ocean_model","rho","rho","ocean_month","all",.true.,"none",2
+ "ocean_model","wt","wt","ocean_month","all",.true.,"none",2
+# "ocean_model","wrhot","wrhot","ocean_month","all",.true.,"none",2
+# "ocean_model","drhodtheta","drhodtheta","ocean_month","all",.true.,"none",2
+# "ocean_model","drhodsalinity","drhodsalinity","ocean_month","all",.true.,"none",2
+#
+## vertically-integrated fluxes
+# "ocean_model","salt_adv_flux_x_int_z","salt_adv_flux_x_int_z","ocean_month","all",.true.,"none",2
+# "ocean_model","salt_adv_flux_y_int_z","salt_adv_flux_y_int_z","ocean_month","all",.true.,"none",2
+# "ocean_model","salt_xflux_neutral_int_z","salt_xflux_neutral_int_z","ocean_month","all",.true.,"none",2
+# "ocean_model","salt_yflux_neutral_int_z","salt_yflux_neutral_int_z","ocean_month","all",.true.,"none",2
+# "ocean_model","temp_adv_flux_x_int_z","temp_adv_flux_x_int_z","ocean_month","all",.true.,"none",2
+# "ocean_model","temp_adv_flux_y_int_z","temp_adv_flux_y_int_z","ocean_month","all",.true.,"none",2
+# "ocean_model","temp_xflux_neutral_int_z","temp_xflux_neutral_int_z","ocean_month","all",.true.,"none",2
+# "ocean_model","temp_yflux_neutral_int_z","temp_yflux_neutral_int_z","ocean_month","all",.true.,"none",2
+# "ocean_model","temp_sigma_diff_xflux_int_z","temp_xflux_sigma","ocean_month","all",.true.,"none",2
+# "ocean_model","temp_sigma_diff_yflux_int_z","temp_yflux_sigma","ocean_month","all",.true.,"none",2
+# "ocean_model","temp_yflux_submeso_int_z","temp_yflux_submeso_int_z","ocean_month","all",.true.,"none",2
+#
+## surface flux quantities
+ "ocean_model","geo_heat","geo_heat","ocean_month","all",.false.,"none",2
+ "ocean_model","frazil_2d","frazil_2d","ocean_month","all",.true.,"none",2
+ "ocean_model","pme_sbc","pme_mass","ocean_month","all",.true.,"none",2
+# "ocean_model","pme_velocity","pme","ocean_month","all",.true.,"none",2
+ "ocean_model","runoff","runoff","ocean_month","all",.true.,"none",2
+ "ocean_model","calving","calving","ocean_month","all",.true.,"none",2
+ "ocean_model","river","river","ocean_month","all",.true.,"none",2
+ "ocean_model","evap","evap","ocean_month","all",.true.,"none",2
+ "ocean_model","fprec","fprec","ocean_month","all",.true.,"none",2
+ "ocean_model","lprec","lprec","ocean_month","all",.true.,"none",2
+ "ocean_model","swflx","swflx","ocean_month","all",.true.,"none",2
+ "ocean_model","swflx_vis","swflx_vis","ocean_month","all",.true.,"none",2
+ "ocean_model","sw_heat","sw_heat","ocean_month","all",.true.,"none",2
+# "ocean_model","sw_frac","sw_frac","ocean_month","all",.true.,"none",2
+# "ocean_model","f_vis","f_vis","ocean_month","all",.true.,"none",2
+ "ocean_model","evap_heat","evap_heat","ocean_month","all",.true.,"none",2
+ "ocean_model","fprec_heat","fprec_heat","ocean_month","all",.true.,"none",2
+ "ocean_model","calving_heat","calving_heat","ocean_month","all",.true.,"none",2
+ "ocean_model","lw_heat","lw_heat","ocean_month","all",.true.,"none",2
+ "ocean_model","sens_heat","sens_heat","ocean_month","all",.true.,"none",2
+ "ocean_model","sfc_hflux","sfc_hflux","ocean_month","all",.true.,"none",2
+ "ocean_model","sfc_hflux_river","sfc_hflux_river","ocean_month","all",.true.,"none",2
+ "ocean_model","sfc_hflux_pme","sfc_hflux_pme","ocean_month","all",.true.,"none",2
+ "ocean_model","sfc_salt_flux","sfc_salt_flux","ocean_month","all",.true.,"none",2
+ "ocean_model","sfc_salt_flux_river","sfc_salt_flux_river","ocean_month","all",.true.,"none",2
+ "ocean_model","tau_x","tau_x","ocean_month","all",.true.,"none",2
+ "ocean_model","tau_y","tau_y","ocean_month","all",.true.,"none",2
+ "ocean_model","tau_curl","tau_curl","ocean_month","all",.true.,"none",2
+ "ocean_model","ekman_we","ekman_we","ocean_month","all",.true.,"none",2
+#"ocean_model","frazil","frazil","ocean_month","all",.true.,"none",2
+#"ocean_model","salt_rivermix","salt_rivermix","ocean_month","all",.true.,"none",2
+#"ocean_model","temp_rivermix","temp_rivermix","ocean_month","all",.true.,"none",2
+#
+## mass transport
+ "ocean_model","tx_trans","tx_trans","ocean_month","all",.true.,"none",2
+ "ocean_model","ty_trans","ty_trans","ocean_month","all",.true.,"none",2
+ "ocean_model","tx_trans_gm","tx_trans_gm","ocean_month","all",.true.,"none",2
+ "ocean_model","ty_trans_gm","ty_trans_gm","ocean_month","all",.true.,"none",2
+ "ocean_model","tx_trans_rho","tx_trans_rho","ocean_month","all",.true.,"none",2
+ "ocean_model","ty_trans_rho","ty_trans_rho","ocean_month","all",.true.,"none",2
+ "ocean_model","tx_trans_rho_gm","tx_trans_rho_gm","ocean_month","all",.true.,"none",2
+ "ocean_model","ty_trans_rho_gm","ty_trans_rho_gm","ocean_month","all",.true.,"none",2
+ "ocean_model","tx_trans_submeso","tx_trans_submeso","ocean_month","all",.true.,"none",2
+ "ocean_model","ty_trans_submeso","ty_trans_submeso","ocean_month","all",.true.,"none",2
+ "ocean_model","psix_submeso","psix_submeso","ocean_month","all",.true.,"none",2
+ "ocean_model","psiy_submeso","psiy_submeso","ocean_month","all",.true.,"none",2
+# "ocean_model","tx_trans_nrho","tx_trans_nrho","ocean_month","all",.true.,"none",2
+# "ocean_model","ty_trans_nrho","ty_trans_nrho","ocean_month","all",.true.,"none",2
+#
+## mass transport quasi-streamfunction
+ "ocean_model","psiu","psiu","ocean_month","all",.true.,"none",2
+ "ocean_model","psiv","psiv","ocean_month","all",.true.,"none",2
+#
+## quasi-physical parameterizations
+# "ocean_model","mass_xland","mass_xland","ocean_month","all",.true.,"none",2
+# "ocean_model","mass_xlandinsert","mass_xlandinsert","ocean_month","all",.true.,"none",2
+# "ocean_model","salt_xland","salt_xland","ocean_month","all",.true.,"none",2
+# "ocean_model","salt_xlandinsert","salt_xlandinsert","ocean_month","all",.true.,"none",2
+# "ocean_model","temp_xland","temp_xland","ocean_month","all",.true.,"none",2
+# "ocean_model","temp_xlandinsert","temp_xlandinsert","ocean_month","all",.true.,"none",2
+# "ocean_model","temp_sigma","temp_sigma","ocean_month","all",.true.,"none",2
+# "ocean_model","mixdownslope_temp","mixdownslope_temp","ocean_month","all",.true.,"none",2
+# "ocean_model","mixdownslope_salt","mixdownslope_salt","ocean_month","all",.true.,"none",2
+#"ocean_model","diff_cbt_table","diff_cbt_table","ocean_month","all",.false.,"none",2
+#
+## physical parameterizations
+# "ocean_model","temp_k33_implicit","temp_k33_implicit","ocean_month","all",.true.,"none",2
+# "ocean_model","steep_depth","steep_depth","ocean_month","all",.true.,"none",2
+# "ocean_model","eddy_depth","eddy_depth","ocean_month","all",.true.,"none",2
+# "ocean_model","slope_blayer_base","slope_blayer_base","ocean_month","all",.true.,"none",2
+# "ocean_model","depth_blayer_base","depth_blayer_base","ocean_month","all",.true.,"none",2
+# "ocean_model","surf_trans_thick","surf_trans_thick","ocean_month","all",.true.,"none",2
+# "ocean_model","surf_turb_thick","surf_turb_thick","ocean_month","all",.true.,"none",2
+# "ocean_model","surf_blayer_depth","surf_blayer_depth","ocean_month","all",.true.,"none",2
+ "ocean_model","agm","agm","ocean_month","all",.true.,"none",2
+# "ocean_model","aredi","aredi","ocean_month","all",.true.,"none",2
+ "ocean_model","N_squared","N_squared","ocean_month","all",.true.,"none",2
+# "ocean_model","aiso_lap","aiso_lap","ocean_month","all",.true.,"none",2
+# "ocean_model","aiso_bih","aiso_bih","ocean_month","all",.true.,"none",2
+# "ocean_model","aiso_bih_back","aiso_bih_back","ocean_month","all",.false.,"none",2
+# "ocean_model","visc_crit_bih","visc_crit_bih","ocean_month","all",.false.,"none",2
+ "ocean_model","hwf_diffusivity","hwf_diffusivity","ocean_month","all",.false.,"none",2
+ "ocean_model","diff_cbt_back","diff_cbt_back","ocean_month","all",.false.,"none",2
+ "ocean_model","diff_cbt_t","diff_cbt_t","ocean_month","all",.true.,"none",2
+ "ocean_model","diff_cbt_wave","diff_cbt_wave","ocean_month","all",.true.,"none",2
+ "ocean_model","bvfreq_bottom","bvfreq_bottom","ocean_month","all",.true.,"none",2
+ "ocean_model","mix_efficiency","mix_efficiency","ocean_month","all",.true.,"none",2
+ "ocean_model","power_waves","power_waves","ocean_month","all",.true.,"none",2
+ "ocean_model","power_diss_wave","power_diss_wave","ocean_month","all",.true.,"none",2
+ "ocean_model","power_diss_drag","power_diss_drag","ocean_month","all",.true.,"none",2
+ "ocean_model","power_diss_back","power_diss_back","ocean_month","all",.true.,"none",2
+ "ocean_model","diff_cbt_drag","diff_cbt_drag","ocean_month","all",.true.,"none",2
+ "ocean_model","diff_cbt_kpp_t","diff_cbt_kpp_t","ocean_month","all",.true.,"none",2
+ "ocean_model","diff_cbt_kpp_s","diff_cbt_kpp_s","ocean_month","all",.true.,"none",2
+ "ocean_model","visc_cbu","visc_cbu","ocean_month","all",.true.,"none",2
+"ocean_model","tide_speed_wave","tide_speed_wave","ocean_month","all",.false.,"none",2
+"ocean_model","tide_speed_drag","tide_speed_drag","ocean_month","all",.false.,"none",2
+"ocean_model","tide_speed_mask","tide_speed_mask","ocean_month","all",.false.,"none",2
+"ocean_model","roughness_length","roughness_length","ocean_month","all",.false.,"none",2
+"ocean_model","cdbot","cdbot","ocean_month","all",.false.,"none",2
+"ocean_model","bmf_u","bmf_u","ocean_month","all",.true.,"none",2
+"ocean_model","bmf_v","bmf_v","ocean_month","all",.true.,"none",2
+#
+#==========================================================================
+# energetic related fields.
+"ocean_model","gm_eddy_ke_source","gm_eddy_ke_source","ocean_month",all,.true.,"none",2
+"ocean_model","horz_lap_diss","horz_lap_diss","ocean_month",all,.true.,"none",2
+"ocean_model","vert_lap_diss","vert_lap_diss","ocean_month",all,.true.,"none",2
+"ocean_model","horz_bih_diss","horz_bih_diss","ocean_month",all,.true.,"none",2
+"ocean_model","wind_power_u","wind_power_u",      "ocean_month","all",.true.,"none",2
+"ocean_model","wind_power_v","wind_power_v",      "ocean_month","all",.true.,"none",2
+"ocean_model","bottom_power_u","bottom_power_u",  "ocean_month","all",.true.,"none",2
+"ocean_model","bottom_power_v","bottom_power_v",  "ocean_month","all",.true.,"none",2
+#
+#==========================================================================
+# ICE DIAGNOSTICS
+#================
+#
+## static output
+ "ice_model", "CELL_AREA",  "CELL_AREA",  "ice_month", "all", .false., "none", 2
+ "ice_model", "COSROT",     "COSROT",     "ice_month", "all", .false., "none", 2
+ "ice_model", "GEOLAT",     "GEOLAT",     "ice_month", "all", .false., "none", 2
+ "ice_model", "GEOLON",     "GEOLON",     "ice_month", "all", .false., "none", 2
+ "ice_model", "SINROT",     "SINROT",     "ice_month", "all", .false., "none", 2
+#
+ "ice_model", "ALB",        "ALB",        "ice_month", "all", .true., "none", 2
+ "ice_model", "BHEAT",      "BHEAT",      "ice_month", "all", .true., "none", 2
+ "ice_model", "BMELT",      "BMELT",      "ice_month", "all", .true., "none", 2
+ "ice_model", "BSNK",       "BSNK",       "ice_month", "all", .true., "none", 2
+ "ice_model", "CALVING",    "CALVING",    "ice_month", "all", .true., "none", 2
+ "ice_model", "CN",         "CN",         "ice_month", "all", .true., "none", 2
+ "ice_model", "EXT",        "EXT",        "ice_month", "all", .true., "none", 2
+# "ice_model", "FA_X",       "FA_X",       "ice_month", "all", .true., "none", 2
+# "ice_model", "FA_Y",       "FA_Y",       "ice_month", "all", .true., "none", 2
+ "ice_model", "FI_X",       "FI_X",       "ice_month", "all", .true., "none", 2
+ "ice_model", "FI_Y",       "FI_Y",       "ice_month", "all", .true., "none", 2
+ "ice_model", "FRAZIL",     "FRAZIL",     "ice_month", "all", .true., "none", 2
+ "ice_model", "HI",         "HI",         "ice_month", "all", .true., "none", 2
+ "ice_model", "HS",         "HS",         "ice_month", "all", .true., "none", 2
+ "ice_model", "IX_TRANS",   "IX_TRANS",   "ice_month", "all", .true., "none", 2
+ "ice_model", "IY_TRANS",   "IY_TRANS",   "ice_month", "all", .true., "none", 2
+ "ice_model", "LH",         "LH",         "ice_month", "all", .true., "none", 2
+ "ice_model", "LSNK",       "LSNK",       "ice_month", "all", .true., "none", 2
+ "ice_model", "LSRC",       "LSRC",       "ice_month", "all", .true., "none", 2
+ "ice_model", "LW",         "LW",         "ice_month", "all", .true., "none", 2
+ "ice_model", "MI",         "MI",         "ice_month", "all", .true., "none", 2
+ "ice_model", "RAIN",       "RAIN",       "ice_month", "all", .true., "none", 2
+ "ice_model", "RUNOFF",     "RUNOFF",     "ice_month", "all", .true., "none", 2
+ "ice_model", "SALTF",      "SALTF",      "ice_month", "all", .true., "none", 2
+ "ice_model", "SH",         "SH",         "ice_month", "all", .true., "none", 2
+ "ice_model", "SNOWFL",     "SNOWFL",     "ice_month", "all", .true., "none", 2
+ "ice_model", "SN2IC",      "SN2IC",      "ice_month", "all", .true., "none", 2
+# "ice_model", "SSH",        "SSH",        "ice_month", "all", .true., "none", 2
+# "ice_model", "SSS",        "SSS",        "ice_month", "all", .true., "none", 2
+ "ice_model", "SST",        "SST",        "ice_month", "all", .true., "none", 2
+ "ice_model", "SW",         "SW",         "ice_month", "all", .true., "none", 2
+ "ice_model", "SW_VIS",     "SW_VIS",     "ice_month", "all", .true., "none", 2
+ "ice_model", "TMELT",      "TMELT",      "ice_month", "all", .true., "none", 2
+ "ice_model", "TS",         "TS",         "ice_month", "all", .true., "none", 2
+ "ice_model", "T1",         "T1",         "ice_month", "all", .true., "none", 2
+ "ice_model", "T2",         "T2",         "ice_month", "all", .true., "none", 2
+ "ice_model", "UI",         "UI",         "ice_month", "all", .true., "none", 2
+ "ice_model", "VI",         "VI",         "ice_month", "all", .true., "none", 2
+# "ice_model", "UO",         "UO",         "ice_month", "all", .true., "none", 2
+# "ice_model", "VO",         "VO",         "ice_month", "all", .true., "none", 2
+ "ice_model", "XPRT",       "XPRT",       "ice_month", "all", .true., "none", 2
+#
+## mixed layer ocean model ICE diagnostics
+"ice_model", "QFLX_LIMIT_ICE",   "QFLX_LIMIT_ICE",   "ice_month","all",.true.,"none",2
+"ice_model", "QFLX_RESTORE_ICE", "QFLX_RESTORE_ICE", "ice_month","all",.true.,"none",2
+#
+#=============================
+# LAND MODEL DIAGNOSTICS (LM2)
+#=============================
+#
+## instantaneous output
+ "soil","frozen",      "frozen",      "land_instant", "all", .false., "none", 2
+ "soil","groundwater", "groundwater", "land_instant", "all", .false., "none", 2
+ "soil","snow",        "snow",        "land_instant", "all", .false., "none", 2
+ "soil","temp",        "temp",        "land_instant", "all", .false., "none", 2
+ "soil","water",       "water",       "land_instant", "all", .false., "none", 2
+#
+## river discharge
+ "rivers", "discharge",     "disch_w","land_month", "all", .true., "none", 2
+ "rivers", "discharge_snow","disch_s","land_month", "all", .true., "none", 2
+#
+## static output
+ "soil","area",        "area",        "land_month", "all", .false., "none", 2
+ "soil","ground_type", "ground_type", "land_month", "all", .false., "none", 2
+ "soil","hlf",         "hlf",         "land_month", "all", .false., "none", 2
+ "soil","hlv",         "hlv",         "land_month", "all", .false., "none", 2
+ "soil","lfrac",       "lfrac",       "land_month", "all", .false., "none", 2
+ "soil","max_water",   "max_water",   "land_month", "all", .false., "none", 2
+ "soil","rho_cap",     "rho_cap",     "land_month", "all", .false., "none", 2
+#
+ "soil","albedo",      "albedo",      "land_month", "all", .true., "none", 2
+ "soil","calving",     "calving",     "land_month", "all", .true., "none", 2
+ "soil","drainage",    "drainage",    "land_month", "all", .true., "none", 2
+ "soil","evap",        "evap",        "land_month", "all", .true., "none", 2
+ "soil","flw",         "flw",         "land_month", "all", .true., "none", 2
+ "soil","fsw",         "fsw",         "land_month", "all", .true., "none", 2
+ "soil","frozen",      "frozen",      "land_month", "all", .true., "none", 2
+ "soil","gmelt",       "gmelt",       "land_month", "all", .true., "none", 2
+ "soil","groundwater", "groundwater", "land_month", "all", .true., "none", 2
+ "soil","latent",      "latent",      "land_month", "all", .true., "none", 2
+ "soil","precip",      "precip",      "land_month", "all", .true., "none", 2
+ "soil","sens",        "sens",        "land_month", "all", .true., "none", 2
+ "soil","smelt",       "smelt",       "land_month", "all", .true., "none", 2
+ "soil","snow",        "snow",        "land_month", "all", .true., "none", 2
+ "soil","snowfall",    "snowfall",    "land_month", "all", .true., "none", 2
+ "soil","sroff",       "sroff",       "land_month", "all", .true., "none", 2
+ "soil","sublim",      "sublim",      "land_month", "all", .true., "none", 2
+ "soil","temp",        "temp",        "land_month", "all", .true., "none", 2
+ "soil","water",       "water",       "land_month", "all", .true., "none", 2
+ "soil","wroff",       "wroff",       "land_month", "all", .true., "none", 2
+
+#=======================
+# ATMOSPHERE DIAGNOSTICS
+#=======================
+#
+ "cloudrad",  "high_cld_amt","high_cld_amt","atmos_month", "all", .true.,  "none", 2
+ "cloudrad",  "low_cld_amt", "low_cld_amt", "atmos_month", "all", .true.,  "none", 2
+ "cloudrad",  "mid_cld_amt", "mid_cld_amt", "atmos_month", "all", .true.,  "none", 2
+ "cloudrad",  "tot_cld_amt", "tot_cld_amt", "atmos_month", "all", .true.,  "none", 2
+#
+ "damping",   "taubx",       "taubx",       "atmos_month", "all", .true.,  "none", 2
+ "damping",   "tauby",       "tauby",       "atmos_month", "all", .true.,  "none", 2
+ "damping",   "udt_gwd",     "udt_gwd",     "atmos_month", "all", .true.,  "none", 2
+ "damping",   "vdt_gwd",     "vdt_gwd",     "atmos_month", "all", .true.,  "none", 2
+ "damping",   "udt_rdamp",   "udt_rdamp",   "atmos_month", "all", .true.,  "none", 2
+ "damping",   "vdt_rdamp",   "vdt_rdamp",   "atmos_month", "all", .true.,  "none", 2
+#
+ "flux",      "drag_heat",   "drag_heat",   "atmos_month", "all", .true.,  "none", 2
+ "flux",      "drag_moist",  "drag_moist",  "atmos_month", "all", .true.,  "none", 2
+ "flux",      "drag_mom",    "drag_mom",    "atmos_month", "all", .true.,  "none", 2
+ "flux",      "evap",        "evap",        "atmos_month", "all", .true.,  "none", 2
+ "flux",      "ice_mask",    "ice_mask",    "atmos_month", "all", .true.,  "none", 2
+ "flux",      "land_mask",   "land_mask",   "atmos_month", "all", .false., "none", 2
+ "flux",      "lwflx",       "lwflx",       "atmos_month", "all", .true.,  "none", 2
+ "flux",      "rh_ref",      "rh_ref",      "atmos_month", "all", .true.,  "none", 2
+ "flux",      "shflx",       "shflx",       "atmos_month", "all", .true.,  "none", 2
+ "flux",      "tau_x",       "tau_x",       "atmos_month", "all", .true.,  "none", 2
+ "flux",      "tau_y",       "tau_y",       "atmos_month", "all", .true.,  "none", 2
+ "flux",      "t_ref",       "t_ref",       "atmos_month", "all", .true.,  "none", 2
+ "flux",      "t_ref",       "t_ref_min",   "atmos_month", "all",  min,    "none", 2
+ "flux",      "t_ref",       "t_ref_max",   "atmos_month", "all",  max,    "none", 2
+ "flux",      "t_surf",      "t_surf",      "atmos_month", "all", .true.,  "none", 2
+ "flux",      "u_ref",       "u_ref",       "atmos_month", "all", .true.,  "none", 2
+ "flux",      "v_ref",       "v_ref",       "atmos_month", "all", .true.,  "none", 2
+ "flux",      "wind",        "wind",        "atmos_month", "all", .true.,  "none", 2
+## ESM output
+# "flux",      "co2_atm",     "co2_atm",     "atmos_month", "all", .true.,  "none", 2
+# "flux",      "co2_surf",    "co2_surf",    "atmos_month", "all", .true.,  "none", 2
+# "flux",      "co2_flux",    "co2_flux",    "atmos_month", "all", .true.,  "none", 2
+# "flux",      "co2_mol_flux","co2_mol_flux","atmos_month", "all", .true.,  "none", 2
+#
+## static output
+ "dynamics",  "bk",          "bk",          "atmos_month", "all", .false., "none", 2
+ "dynamics",  "pk",          "pk",          "atmos_month", "all", .false., "none", 2
+ "dynamics",  "zsurf",       "zsurf",       "atmos_month", "all", .false., "none", 2
+#
+ "dynamics",  "cld_amt",     "cld_amt",     "atmos_month", "all", .true.,  "none", 2
+ "dynamics",  "ice_wat",     "ice_wat",     "atmos_month", "all", .true.,  "none", 2
+ "dynamics",  "liq_wat",     "liq_wat",     "atmos_month", "all", .true.,  "none", 2
+ "dynamics",  "omega",       "omega",       "atmos_month", "all", .true.,  "none", 2
+## pres_full pres_half theta are only saved by the B-grid core
+#"dynamics",  "pres_full",   "pres_full",   "atmos_month", "all", .true.,  "none", 2
+#"dynamics",  "pres_half",   "pres_half",   "atmos_month", "all", .true.,  "none", 2
+ "dynamics",  "ps",          "ps",          "atmos_month", "all", .true.,  "none", 2
+ "dynamics",  "sphum",       "sphum",       "atmos_month", "all", .true.,  "none", 2
+ "dynamics",  "temp",        "temp",        "atmos_month", "all", .true.,  "none", 2
+#"dynamics",  "theta",       "theta",       "atmos_month", "all", .true.,  "none", 2
+ "dynamics",  "ucomp",       "ucomp",       "atmos_month", "all", .true.,  "none", 2
+ "dynamics",  "vcomp",       "vcomp",       "atmos_month", "all", .true.,  "none", 2
+## ESM output
+# "dynamics",  "co2",         "co2",         "atmos_month", "all", .true.,  "none", 2
+# "dynamics",  "co2_dry",     "co2_dry",     "atmos_month", "all", .true.,  "none", 2
+#
+ "moist",     "IWP",         "IWP",         "atmos_month", "all", .true.,  "none", 2
+ "moist",     "LWP",         "LWP",         "atmos_month", "all", .true.,  "none", 2
+ "moist",     "precip",      "precip",      "atmos_month", "all", .true.,  "none", 2
+ "moist",     "prec_conv",   "prec_conv",   "atmos_month", "all", .true.,  "none", 2
+ "moist",     "prec_ls",     "prec_ls",     "atmos_month", "all", .true.,  "none", 2
+ "moist",     "qdt_conv",    "qdt_conv",    "atmos_month", "all", .true.,  "none", 2
+ "moist",     "qdt_ls",      "qdt_ls",      "atmos_month", "all", .true.,  "none", 2
+ "moist",     "rh",          "rh",          "atmos_month", "all", .true.,  "none", 2
+ "moist",     "snow_conv",   "snow_conv",   "atmos_month", "all", .true.,  "none", 2
+ "moist",     "snow_ls",     "snow_ls",     "atmos_month", "all", .true.,  "none", 2
+ "moist",     "tdt_conv",    "tdt_conv",    "atmos_month", "all", .true.,  "none", 2
+ "moist",     "tdt_ls",      "tdt_ls",      "atmos_month", "all", .true.,  "none", 2
+ "moist",     "WVP",         "WVP",         "atmos_month", "all", .true.,  "none", 2
+#
+ "radiation", "alb_sfc",     "alb_sfc",     "atmos_month", "all", .true.,  "none", 2
+ "radiation", "lwdn_sfc",    "lwdn_sfc",    "atmos_month", "all", .true.,  "none", 2
+ "radiation", "lwdn_sfc_clr","lwdn_sfc_clr","atmos_month", "all", .true.,  "none", 2
+ "radiation", "lwup_sfc",    "lwup_sfc",    "atmos_month", "all", .true.,  "none", 2
+ "radiation", "lwup_sfc_clr","lwup_sfc_clr","atmos_month", "all", .true.,  "none", 2
+ "radiation", "netrad_toa",  "netrad_toa",  "atmos_month", "all", .true.,  "none", 2
+ "radiation", "netrad_toa_clr","netrad_toa_clr","atmos_month", "all", .true.,"none", 2
+ "radiation", "olr",         "olr",         "atmos_month", "all", .true.,  "none", 2
+ "radiation", "olr_clr",     "olr_clr",     "atmos_month", "all", .true.,  "none", 2
+ "radiation", "qo3",         "qo3",         "atmos_month", "all", .true.,  "none", 2
+ "radiation", "qo3_col",     "qo3_col",     "atmos_month", "all", .true.,  "none", 2
+ "radiation", "swdn_sfc",    "swdn_sfc",    "atmos_month", "all", .true.,  "none", 2
+ "radiation", "swdn_sfc_clr","swdn_sfc_clr","atmos_month", "all", .true.,  "none", 2
+ "radiation", "swup_sfc",    "swup_sfc",    "atmos_month", "all", .true.,  "none", 2
+ "radiation", "swup_sfc_clr","swup_sfc_clr","atmos_month", "all", .true.,  "none", 2
+ "radiation", "swdn_toa",    "swdn_toa",    "atmos_month", "all", .true.,  "none", 2
+ "radiation", "swdn_toa_clr","swdn_toa_clr","atmos_month", "all", .true.,  "none", 2
+ "radiation", "swup_toa",    "swup_toa",    "atmos_month", "all", .true.,  "none", 2
+ "radiation", "swup_toa_clr","swup_toa_clr","atmos_month", "all", .true.,  "none", 2
+ "radiation", "tdt_lw",      "tdt_lw",      "atmos_month", "all", .true.,  "none", 2
+ "radiation", "tdt_lw_clr",  "tdt_lw_clr",  "atmos_month", "all", .true.,  "none", 2
+ "radiation", "tdt_sw",      "tdt_sw",      "atmos_month", "all", .true.,  "none", 2
+ "radiation", "tdt_sw_clr",  "tdt_sw_clr",  "atmos_month", "all", .true.,  "none", 2
+#
+ "radiation", "netlw_lin_trop",    "netlw_lin_trop",    "atmos_month", "all", .true., "none", 2
+ "radiation", "netlw_lin_trop_clr","netlw_lin_trop_clr","atmos_month", "all", .true., "none", 2
+ "radiation", "netlw_200hPa",      "netlw_200hPa",      "atmos_month", "all", .true., "none", 2
+ "radiation", "netlw_200hPa_clr",  "netlw_200hPa_clr",  "atmos_month", "all", .true., "none", 2
+ "radiation", "swdn_lin_trop",     "swdn_lin_trop",     "atmos_month", "all", .true., "none", 2
+ "radiation", "swdn_lin_trop_clr", "swdn_lin_trop_clr", "atmos_month", "all", .true., "none", 2
+ "radiation", "swdn_200hPa",       "swdn_200hPa",       "atmos_month", "all", .true., "none", 2
+ "radiation", "swdn_200hPa_clr",   "swdn_200hPa_clr",   "atmos_month", "all", .true., "none", 2
+ "radiation", "swup_lin_trop",     "swup_lin_trop",     "atmos_month", "all", .true., "none", 2
+ "radiation", "swup_lin_trop_clr", "swup_lin_trop_clr", "atmos_month", "all", .true., "none", 2
+ "radiation", "swup_200hPa",       "swup_200hPa",       "atmos_month", "all", .true., "none", 2
+ "radiation", "swup_200hPa_clr",   "swup_200hPa_clr",   "atmos_month", "all", .true., "none", 2
+#
+ "ras",       "mc",                "mc",                "atmos_month", "all", .true.,  "none", 2
+#
+ "vert_diff", "qdt_vdif", "qdt_vdif", "atmos_month", "all", .true.,  "none", 2
+ "vert_diff", "tdt_vdif", "tdt_vdif", "atmos_month", "all", .true.,  "none", 2
+ "vert_diff", "udt_vdif", "udt_vdif", "atmos_month", "all", .true.,  "none", 2
+ "vert_diff", "vdt_vdif", "vdt_vdif", "atmos_month", "all", .true.,  "none", 2
+#
+## aerosols
+## for the aerosol fields, set do_cmip_diagnostics=.true. in &shortwave_driver_nml
+ "radiation", "aerosol_col",        "aer_c",       "atmos_month_aer", "all", .true., "none", 2
+ "radiation", "black_carbon_col",   "blk_crb_col", "atmos_month_aer", "all", .true., "none", 2
+ "radiation", "large_dust_col",     "lg_dust_col", "atmos_month_aer", "all", .true., "none", 2
+ "radiation", "organic_carbon_col", "org_crb_col", "atmos_month_aer", "all", .true., "none", 2
+ "radiation", "sea_salt_col",       "salt_col",    "atmos_month_aer", "all", .true., "none", 2
+ "radiation", "small_dust_col",     "sm_dust_col", "atmos_month_aer", "all", .true., "none", 2
+ "radiation", "sulfate_col",        "sulfate_col", "atmos_month_aer", "all", .true., "none", 2
+# 
+# "radiation", "aerosol_abopdep_col_con", "aer_ab_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "aerosol_abopdep_col_nir", "aer_ab_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "aerosol_abopdep_col_vis", "aer_ab_c_vs", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "aerosol_exopdep_col_con", "aer_ex_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "aerosol_exopdep_col_nir", "aer_ex_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "aerosol_exopdep_col_vis", "aer_ex_c_vs", "atmos_month_aer", "all", .true., "none", 2
+#
+# "radiation", "black_carbon_abopdep_col_con", "blk_crb_ab_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "black_carbon_abopdep_col_nir", "blk_crb_ab_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "black_carbon_abopdep_col_vis", "blk_crb_ab_c_vs", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "black_carbon_exopdep_col_con", "blk_crb_ex_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "black_carbon_exopdep_col_nir", "blk_crb_ex_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "black_carbon_exopdep_col_vis", "blk_crb_ex_c_vs", "atmos_month_aer", "all", .true., "none", 2
+#
+# "radiation", "large_dust_abopdep_col_con", "lg_dst_ab_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "large_dust_abopdep_col_nir", "lg_dst_ab_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "large_dust_abopdep_col_vis", "lg_dst_ab_c_vs", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "large_dust_exopdep_col_con", "lg_dst_ex_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "large_dust_exopdep_col_nir", "lg_dst_ex_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "large_dust_exopdep_col_vis", "lg_dst_ex_c_vs", "atmos_month_aer", "all", .true., "none", 2
+# 
+# "radiation", "organic_carbon_abopdep_col_con", "org_crb_ab_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "organic_carbon_abopdep_col_nir", "org_crb_ab_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "organic_carbon_abopdep_col_vis", "org_crb_ab_c_vs", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "organic_carbon_exopdep_col_con", "org_crb_ex_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "organic_carbon_exopdep_col_nir", "org_crb_ex_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "organic_carbon_exopdep_col_vis", "org_crb_ex_c_vs", "atmos_month_aer", "all", .true., "none", 2
+#
+# "radiation", "sea_salt_abopdep_col_con", "salt_ab_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "sea_salt_abopdep_col_nir", "salt_ab_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "sea_salt_abopdep_col_vis", "salt_ab_c_vs", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "sea_salt_exopdep_col_con", "salt_ex_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "sea_salt_exopdep_col_nir", "salt_ex_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "sea_salt_exopdep_col_vis", "salt_ex_c_vs", "atmos_month_aer", "all", .true., "none", 2
+#
+# "radiation", "small_dust_abopdep_col_con", "sm_dst_ab_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "small_dust_abopdep_col_nir", "sm_dst_ab_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "small_dust_abopdep_col_vis", "sm_dst_ab_c_vs", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "small_dust_exopdep_col_con", "sm_dst_ex_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "small_dust_exopdep_col_nir", "sm_dst_ex_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "small_dust_exopdep_col_vis", "sm_dst_ex_c_vs", "atmos_month_aer", "all", .true., "none", 2
+# 
+# "radiation", "sulfate_abopdep_col_con", "sulfate_ab_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "sulfate_abopdep_col_nir", "sulfate_ab_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "sulfate_abopdep_col_vis", "sulfate_ab_c_vs", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "sulfate_exopdep_col_con", "sulfate_ex_c_cn", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "sulfate_exopdep_col_nir", "sulfate_ex_c_ir", "atmos_month_aer", "all", .true., "none", 2
+# "radiation", "sulfate_exopdep_col_vis", "sulfate_ex_c_vs", "atmos_month_aer", "all", .true., "none", 2
+#
+## globally averaged ghg
+# "radiation", "rrvch4",        "rrvch4",        "atmos_scalar", "all", .true., "none", 2
+ "radiation", "rrvco2",        "rrvco2",        "atmos_scalar", "all", .true., "none", 2
+# "radiation", "rrvf11",        "rrvf11",        "atmos_scalar", "all", .true., "none", 2
+# "radiation", "rrvf12",        "rrvf12",        "atmos_scalar", "all", .true., "none", 2
+# "radiation", "rrvf113",       "rrvf113",       "atmos_scalar", "all", .true., "none", 2
+# "radiation", "rrvf22",        "rrvf22",        "atmos_scalar", "all", .true., "none", 2
+# "radiation", "rrvn2o",        "rrvn2o",        "atmos_scalar", "all", .true., "none", 2
+ "radiation", "solar_constant","solar_constant","atmos_scalar", "all", .true., "none", 2
+
+#
+ "ocean_model","geolat_c",             "geolat_c",           "ocean_tracers","all",.false.,"none",2
+ "ocean_model","geolon_c",             "geolon_c",           "ocean_tracers","all",.false.,"none",2
+ "ocean_model","geolat_t",             "geolat_t",           "ocean_tracers","all",.false.,"none",2
+ "ocean_model","geolon_t",             "geolon_t",           "ocean_tracers","all",.false.,"none",2
+"ocean_grid_static",  $month_diag_frequency, "time",
+"ocean_grid_month_t", $month_diag_frequency, "time",
+"ocean_grid_month_u", $month_diag_frequency, "time",
+"ocean_grid_snap_t",  $month_diag_frequency, "time",
+"ocean_grid_snap_u",  $month_diag_frequency, "time",
+
+## static grid quantities
+"ocean_model",            "area_t",            "area_t", "ocean_grid_static", "all", .false., "none", 2
+"ocean_model",            "area_u",            "area_u", "ocean_grid_static", "all", .false., "none", 2
+"ocean_model",          "geolat_c",          "geolat_c", "ocean_grid_static", "all", .false., "none", 2
+"ocean_model",          "geolon_c",          "geolon_c", "ocean_grid_static", "all", .false., "none", 2
+"ocean_model",          "geolat_t",          "geolat_t", "ocean_grid_static", "all", .false., "none", 2
+"ocean_model",          "geolon_t",          "geolon_t", "ocean_grid_static", "all", .false., "none", 2
+"ocean_model", "rescale_rho0_mask", "rescale_rho0_mask", "ocean_grid_static", "all", .false., "none", 2
+
+## monthly mean t-grid quantities
+"ocean_model",     "dzt",     "dzt", "ocean_grid_month_t", "all", .true., "none", 2
+"ocean_model", "rho_dzt", "rho_dzt", "ocean_grid_month_t", "all", .true., "none", 2
+"ocean_model",     "dst",     "dst", "ocean_grid_month_t", "all", .true., "none", 2
+"ocean_model",      "ht",      "ht", "ocean_grid_month_t", "all", .true., "none", 2
+
+## monthly mean u-grid quantities
+"ocean_model", "dzu", "dzu", "ocean_grid_month_u", "all", .true., "none", 2
+"ocean_model",  "hu",  "hu", "ocean_grid_month_u", "all", .true., "none", 2
+
+## monthly snapshot t-grid quantities
+"ocean_model",     "dzt",     "dzt", "ocean_grid_snap_t", "all", .false., "none", 2
+"ocean_model", "rho_dzt", "rho_dzt", "ocean_grid_snap_t", "all", .false., "none", 2
+"ocean_model",     "dst",     "dst", "ocean_grid_snap_t", "all", .false., "none", 2
+"ocean_model",      "ht",      "ht", "ocean_grid_snap_t", "all", .false., "none", 2
+
+## monthly mean u-grid quantities
+"ocean_model", "dzu", "dzu", "ocean_grid_snap_u", "all", .false., "none", 2
+"ocean_model",  "hu",  "hu", "ocean_grid_snap_u", "all", .false., "none", 2
+## output files
+ "ocean_bling", $month_diag_frequency, "time",
+
+#======================
+# GENERIC OCEAN BLING DIAGNOSTICS 
+#======================
+#
+# Core model 
+ "generic_bling","alpha",           "alpha",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","b_fed",           "b_fed",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","b_o2",            "b_o2",                  "ocean_bling","all",.true.,"none",2
+ "generic_bling","b_po4",           "b_po4",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","biomass_p",       "biomass_p",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","chl",             "chl",                   "ocean_bling","all",.true.,"none",2
+ "generic_bling","def_fe",          "def_fe",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","expkT",           "expkT",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","fe_2_p_uptake",   "fe_2_p_uptake",         "ocean_bling","all",.true.,"none",2
+ "generic_bling","fe_burial",       "fe_burial",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","fed_stf",         "fed_stf",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","fed_btf",         "fed_btf",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","feprime",         "feprime",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","ffe_sed",         "ffe_sed",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","fpofe",           "fpofe",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","fpop",            "fpop",                  "ocean_bling","all",.true.,"none",2
+ "generic_bling","frac_lg",         "frac_lg",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","frac_pop",        "frac_pop",              "ocean_bling","all",.true.,"none",2
+ "generic_bling","irr_inst",        "irr_inst",              "ocean_bling","all",.true.,"none",2
+ "generic_bling","irr_mem",         "irr_mem",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","irr_mix",         "irr_mix",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","irrk",            "irrk",                  "ocean_bling","all",.true.,"none",2
+ "generic_bling","jdop",            "jdop",                  "ocean_bling","all",.true.,"none",2
+ "generic_bling","jfe_ads_inorg",   "jfe_ads_inorg",         "ocean_bling","all",.true.,"none",2
+ "generic_bling","jfe_ads_org",     "jfe_ads_org",           "ocean_bling","all",.true.,"none",2
+ "generic_bling","jfe_coast",       "jfe_coast",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","jfe_recycle",     "jfe_recycle",           "ocean_bling","all",.true.,"none",2
+ "generic_bling","jfe_reminp",      "jfe_reminp",            "ocean_bling","all",.true.,"none",2
+ "generic_bling","jfe_uptake",      "jfe_uptake",            "ocean_bling","all",.true.,"none",2
+ "generic_bling","jo2",             "jo2",                   "ocean_bling","all",.true.,"none",2
+ "generic_bling","jp_recycle",      "jp_recycle",            "ocean_bling","all",.true.,"none",2
+ "generic_bling","jp_reminp",       "jp_reminp",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","jp_uptake",       "jp_uptake",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","jpo4",            "jpo4",                  "ocean_bling","all",.true.,"none",2
+ "generic_bling","jpofe",           "jpofe",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","jpop",            "jpop",                  "ocean_bling","all",.true.,"none",2
+ "generic_bling","kfe_eq_lig",      "kfe_eq_lig",            "ocean_bling","all",.true.,"none",2
+ "generic_bling","mu",              "mu",                    "ocean_bling","all",.true.,"none",2
+ "generic_bling","o2_btf",          "o2_btf",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","o2_stf",          "o2_stf",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","pc_m",            "pc_m",                  "ocean_bling","all",.true.,"none",2
+ "generic_bling","pc_tot",          "pc_tot",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","pco2_surf",       "pco2_surf",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","po4_btf",         "po4_btf",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","theta",           "theta",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","thetamax_fe",     "thetamax_fe",           "ocean_bling","all",.true.,"none",2
+ "generic_bling","wsink",           "wsink",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","zremin",          "zremin",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","dop",             "dop",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","fed",             "fed",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","o2",              "o2",                  "ocean_bling","all",.true.,"none",2
+ "generic_bling","po4",             "po4",                 "ocean_bling","all",.true.,"none",2
+# Nutrient Source Exposure tags
+ "generic_bling","fpop_n",          "fpop_n",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","fpop_nx",         "fpop_nx",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","fpop_s",          "fpop_s",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","fpop_sx",         "fpop_sx",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","jpn_reminp",      "jpn_reminp",            "ocean_bling","all",.true.,"none",2
+ "generic_bling","jpnx_reminp",     "jpnx_reminp",           "ocean_bling","all",.true.,"none",2
+ "generic_bling","jps_reminp",      "jps_reminp",            "ocean_bling","all",.true.,"none",2
+ "generic_bling","jpsx_reminp",     "jpsx_reminp",           "ocean_bling","all",.true.,"none",2
+ "generic_bling","dop_n",           "dop_n",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","dop_nx",          "dop_nx",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","dop_s",           "dop_s",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","dop_sx",          "dop_sx",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","po4_n",           "po4_n",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","po4_nx",          "po4_nx",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","po4_s",           "po4_s",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","po4_sx",          "po4_sx",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","po4_pre_n",       "po4_pre_n",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","po4_pre_s",       "po4_pre_s",             "ocean_bling","all",.true.,"none",2
+# Preformed PO4
+ "generic_bling","po4_pre",         "po4_pre",               "ocean_bling","all",.true.,"none",2
+# Carbon cycle 
+ "generic_bling","alk_btf",         "alk_btf",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","alk_triver",      "alk_triver",            "ocean_bling","all",.true.,"none",2
+ "generic_bling","b_alk",           "b_alk",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","b_di14c",         "b_di14c",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","b_dic",           "b_dic",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","cased",           "cased",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","co2_alpha",       "co2_alpha",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","co2_csurf",       "co2_csurf",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","co3_solubility",  "co3_solubility",        "ocean_bling","all",.true.,"none",2
+ "generic_bling","co3_ion",         "co3_ion",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","dic_btf",         "dic_btf",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","dic_stf",         "dic_stf",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","fcaco3",          "fcaco3",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","fcaco3_to_sed",   "fcaco3_to_sed",         "ocean_bling","all",.true.,"none",2
+ "generic_bling","fcased_burial",   "fcased_burial",         "ocean_bling","all",.true.,"none",2
+ "generic_bling","fcased_redis",    "fcased_redis",          "ocean_bling","all",.true.,"none",2
+ "generic_bling","htotal",          "htotal",              "ocean_bling","all",.true.,"none",2
+ "generic_bling","jca_reminp",      "jca_reminp",            "ocean_bling","all",.true.,"none",2
+ "generic_bling","jca_uptake",      "jca_uptake",            "ocean_bling","all",.true.,"none",2
+ "generic_bling","zremin_caco3",    "zremin_caco3",          "ocean_bling","all",.true.,"none",2
+ "generic_bling","runoff_alk",      "runoff_alk",            "ocean_bling","all",.true.,"none",2
+ "generic_bling","runoff_flux_alk", "runoff_flux_alk",       "ocean_bling","all",.true.,"none",2
+ "generic_bling","alk",             "alk",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","dic",             "dic",                 "ocean_bling","all",.true.,"none",2
+# Carbon components
+ "generic_bling","co2_sat_csurf",   "co2_sat_csurf",         "ocean_bling","all",.true.,"none",2
+ "generic_bling","dic_sat_stf",     "dic_sat_stf",           "ocean_bling","all",.true.,"none",2
+ "generic_bling","htotal_sat",      "htotal_sat",            "ocean_bling","all",.true.,"none",2
+ "generic_bling","pco2_sat_surf",   "pco2_sat_surf",         "ocean_bling","all",.true.,"none",2
+ "generic_bling","alk_pre",         "alk_pre",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","dic_pre",         "dic_pre",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","dic_sat",         "dic_sat",               "ocean_bling","all",.true.,"none",2
+# Radiocarbon
+ "generic_bling","c14_2_p",         "c14_2_p",               "ocean_bling","all",.true.,"none",2
+ "generic_bling","c14o2_alpha",     "c14o2_alpha",           "ocean_bling","all",.true.,"none",2
+ "generic_bling","c14o2_csurf",     "c14o2_csurf",           "ocean_bling","all",.true.,"none",2
+ "generic_bling","di14c_btf",       "di14c_btf",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","di14c_stf",       "di14c_stf",             "ocean_bling","all",.true.,"none",2
+ "generic_bling","fpo14c",          "fpo14c",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","j14c_decay_dic",  "j14c_decay_dic",        "ocean_bling","all",.true.,"none",2
+ "generic_bling","j14c_decay_doc",  "j14c_decay_doc",        "ocean_bling","all",.true.,"none",2
+ "generic_bling","j14c_reminp",     "j14c_reminp",           "ocean_bling","all",.true.,"none",2
+ "generic_bling","jdi14c",          "jdi14c",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","jdo14c",          "jdo14c",                "ocean_bling","all",.true.,"none",2
+ "generic_bling","di14c",           "di14c",                 "ocean_bling","all",.true.,"none",2
+ "generic_bling","do14c",           "do14c",                 "ocean_bling","all",.true.,"none",2
+## output files
+ "ocean_ibgc", $month_diag_frequency, "time",
+
+# 
+#======================
+# Idealized BGC
+#======================
+#####diagnostic field entries####
+ "ocean_ibgc","jideal_n",           "jideal_n",           "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jsuntan",            "jsuntan",            "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","remin_ip",           "remin_ip",           "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jprod_pip",          "jprod_pip",          "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jprod_idop",         "jprod_idop",         "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jremin_idop",        "jremin_idop",        "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","fpip",               "fpip",               "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jremin_pip",         "jremin_pip",         "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jife_new",           "jife_new",           "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","felim_irrk",         "felim_irrk",         "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jprod_pipf",         "jprod_pipf",         "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jprod_idopf",        "jprod_idopf",        "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jremin_idopf",       "jremin_idopf",       "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","fpipf",              "fpipf",              "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jremin_pipf",        "jremin_pipf",        "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jprod_pife",         "jprod_pife",         "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","fpife",              "fpife",              "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jremin_pife",        "jremin_pife",        "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","ife_free",           "ife_free",           "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jife_scav",          "jife_scav",          "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jipo4",              "jipo4",              "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jipo4f",             "jipo4f",             "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jipo4_bgc",          "jipo4_bgc",          "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","ipo4_bgc",           "ipo4_bgc",           "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","ichl_new",           "ichl_new",           "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","ialpha",             "ialpha",             "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","icsurf",             "icsurf",             "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","icsatsurf",          "icsatsurf",          "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","ipco2surf",          "ipco2surf",          "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","ipco2satsurf",       "ipco2satsurf",       "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","ihtotal",            "ihtotal",            "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","ihtotal_sat",        "ihtotal_sat",        "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","ialk",               "ialk",               "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","ic14surf",           "ic14surf",           "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","sfc_flux_io2",       "sfc_flux_io2",       "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","sfc_flux_ico2",      "sfc_flux_ico2",      "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","sfc_flux_ico2sat",   "sfc_flux_ico2sat",   "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","sfc_flux_i14co2",    "sfc_flux_i14co2",    "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","frac_14catm",        "frac_14catm",        "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jdecay_idi14c",      "jdecay_idi14c",      "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jdecay_ido14c",      "jdecay_ido14c",      "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jprod_pi14c",        "jprod_pi14c",        "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jprod_ido14c",       "jprod_ido14c",       "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jremin_pi14c",       "jremin_pi14c",       "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jremin_ido14c",      "jremin_ido14c",      "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","fpi14c",             "fpi14c",             "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jidi14c",            "jidi14c",            "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jio2",               "jio2",               "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","o2_sat",             "o2_sat",             "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jprod_pi15n",        "jprod_pi15n",        "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jprod_ido15n",       "jprod_ido15n",       "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jremin_ido15n",      "jremin_ido15n",      "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","fpi15n",             "fpi15n",             "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jremin_pi15n",       "jremin_pi15n",       "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","ji15no3",            "ji15no3",            "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jprod_i18o",         "jprod_i18o",         "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","remin_isi",          "remin_isi",          "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jprod_pisi",         "jprod_pisi",         "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","fpisi",              "fpisi",              "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jremin_pisi",        "jremin_pisi",        "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jprod_pi30si",       "jprod_pi30si",       "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","fpi30si",            "fpi30si",            "ocean_ibgc","all",.true.,"none",2
+ "ocean_ibgc","jremin_pi30si",      "jremin_pi30si",      "ocean_ibgc","all",.true.,"none",2
+
+#####tracer field entries####
+ "ocean_model","ideal_n",            "ideal_n",            "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","suntan",             "suntan",             "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","ichl",               "ichl",               "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","irrmem",             "irrmem",             "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","ipo4_pre",           "ipo4_pre",           "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","isio4",              "isio4",              "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","i30sio4",            "i30sio4",            "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","ipo4",               "ipo4",               "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","idop",               "idop",               "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","ipo4f",              "ipo4f",              "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","idopf",              "idopf",              "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","ife",                "ife",                "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","ido15n",             "ido15n",             "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","i15no3",             "i15no3",            "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","in18o3",             "in18o3",            "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","idi14c",             "idi14c",             "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","ido14c",             "ido14c",             "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","idic",               "idic",               "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","idic_pre",           "idic_pre",           "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","idic_sat",           "idic_sat",           "ocean_ibgc","all",.true.,"none",2
+ "ocean_model","io2",                "io2",                "ocean_ibgc","all",.true.,"none",2
+## output files
+ "ocean_helium", $month_diag_frequency, "time",
+
+#=============================================================================================
+# OCMIP2 3He - helium he3 he4 
+#=============================================================================================
+"ocean_model","he_3_atm","he_3_atm",                  "ocean_helium","all",.true.,"none",2
+"ocean_model","he_3_man","he_3_man",                  "ocean_helium","all",.true.,"none",2
+"ocean_model","he_4_atm","he_4_atm",                  "ocean_helium","all",.true.,"none",2
+"ocean_model","he_4_man","he_4_man",                  "ocean_helium","all",.true.,"none",2
+"ocean_model","sc_3","sc_3",                          "ocean_helium","all",.true.,"none",2
+"ocean_model","sc_4","sc_4",                          "ocean_helium","all",.true.,"none",2
+"ocean_model","alpha_3_atm","alpha_3_atm",            "ocean_helium","all",.true.,"none",2
+"ocean_model","alpha_3_man","alpha_3_man",            "ocean_helium","all",.true.,"none",2
+"ocean_model","alpha_4_atm","alpha_4_atm",            "ocean_helium","all",.true.,"none",2
+"ocean_model","alpha_4_man","alpha_4_man",            "ocean_helium","all",.true.,"none",2
+"ocean_model","sfc_flux_he_3_atm","sfc_flux_he_3_atm",  "ocean_helium","all",.true.,"none",2
+"ocean_model","sfc_flux_he_4_atm","sfc_flux_he_4_atm",  "ocean_helium","all",.true.,"none",2
+"ocean_model","sfc_flux_he_3_man","sfc_flux_he_3_man",  "ocean_helium","all",.true.,"none",2
+"ocean_model","sfc_flux_he_4_man","sfc_flux_he_4_man",  "ocean_helium","all",.true.,"none",2
+"ocean_model","jhe_depth", "jhe_depth",               "ocean_helium","all",.true.,"none",2
+"ocean_model","jhe3_man","jhe3_man",                  "ocean_helium","all",.true.,"none",2
+"ocean_model","jhe4_man","jhe4_man",                  "ocean_helium","all",.true.,"none",2
+#output files
+#
+"ocean_residency_month", $month_diag_frequency, "Time"
+"ocean_residency_snap",  $month_diag_frequency, "Time"
+#=============================================================================================
+# prognostic fields 
+"ocean_model","residency_so_mode_dye_atl","residency_so_mode_dye_atl","ocean_residency_snap","all",.false.,"none",2
+"ocean_model","residency_so_mode_dye_atl","residency_so_mode_dye_atl","ocean_residency_month","all",.true.,"none",2
+"ocean_residency","residency_change_so_mode_dye_atl","residency_change_so_mode_dye_atl","ocean_residency_month","all",.true.,"none",2
+"ocean_residency","residency_in_region_so_mode_dye_atl","residency_in_region_so_mode_dye_atl","ocean_residency_month","all",.true.,"none",2
+#=============================================================================================
+# prognostic fields 
+"ocean_model","residency_so_mode_dye_indpac","residency_so_mode_dye_indpac","ocean_residency_snap","all",.false.,"none",2
+"ocean_model","residency_so_mode_dye_indpac","residency_so_mode_dye_indpac","ocean_residency_month","all",.true.,"none",2
+"ocean_residency","residency_change_so_mode_dye_indpac","residency_change_so_mode_dye_indpac","ocean_residency_month","all",.true.,"none",2
+"ocean_residency","residency_in_region_so_mode_dye_indpac","residency_in_region_so_mode_dye_indpac","ocean_residency_month","all",.true.,"none",2
+#=============================================================================================
+# prognostic fields 
+"ocean_model","residency_age_bottom_100","residency_age_bottom_100","ocean_residency_snap","all",.false.,"none",2
+"ocean_model","residency_age_bottom_100","residency_age_bottom_100","ocean_residency_month","all",.true.,"none",2
+"ocean_residency","residency_change_age_bottom_100","residency_change_age_bottom_100","ocean_residency_month","all",.true.,"none",2
+"ocean_residency","residency_in_region_age_bottom_100","residency_in_region_age_bottom_100","ocean_residency_month","all",.true.,"none",2
+#=============================================================================================
+# prognostic fields 
+"ocean_model","residency_age_bottom_100_plus","residency_age_bottom_100_plus","ocean_residency_snap","all",.false.,"none",2
+"ocean_model","residency_age_bottom_100_plus","residency_age_bottom_100_plus","ocean_residency_month","all",.true.,"none",2
+"ocean_residency","residency_change_age_bottom_100_plus","residency_change_age_bottom_100_plus","ocean_residency_month","all",.true.,"none",2
+"ocean_residency","residency_in_region_age_bottom_100_plus","residency_in_region_age_bottom_100_plus","ocean_residency_month","all",.true.,"none",2
+#=============================================================================================
+# prognostic fields 
+"ocean_model","residency_age_surface","residency_age_surface","ocean_residency_snap","all",.false.,"none",2
+"ocean_model","residency_age_surface","residency_age_surface","ocean_residency_month","all",.true.,"none",2
+"ocean_residency","residency_change_age_surface","residency_change_age_surface","ocean_residency_month","all",.true.,"none",2
+"ocean_residency","residency_in_region_age_surface","residency_in_region_age_surface","ocean_residency_month","all",.true.,"none",2
+
+EOF
+
+
+  cat >> field_table <<EOF
+ "TRACER", "atmos_mod", "sphum"
+           "longname",     "specific humidity"
+           "units",        "kg/kg"
+           "profile_type", "fixed", "surface_value=3.e-6" /
+
+# prognotic cloud scheme tracers
+
+  "TRACER", "atmos_mod", "liq_wat"
+            "longname",     "cloud liquid specific humidity"
+            "units",        "kg/kg" /
+
+  "TRACER", "atmos_mod", "ice_wat"
+            "longname",     "cloud ice water specific humidity"
+            "units",        "kg/kg" /
+
+  "TRACER", "atmos_mod", "cld_amt"
+            "longname",     "cloud fraction"
+            "units",        "none" /
+
+# CO2 tracer
+
+#"TRACER", "atmos_mod",    "co2"
+#          "longname",     "carbon dioxide"
+#          "units",        "mol/mol"
+#          "profile_type","fixed","surface_value = 286.0E-06"/
+
+# "TRACER", "land_mod",     "co2"
+#           "longname",     "carbon dioxide"
+#           "units",        "mol/mol" /
+
+# sphum must be present on land as well
+ "TRACER", "land_mod",     "sphum"
+           "longname",     "specific humidity"
+           "units",        "kg/kg" /
+
+# test tracer for radon
+#
+# "TRACER", "atmos_mod", "radon"
+#           "longname",     "radon test tracer"
+#           "units",        "kg/kg" /
+"xland_mix","ocean_mod","xland_mix"
+"xland","Gibraltar","ixland_1=93,ixland_2=96,jxland_1=54,jxland_2=55,kxland_1=1,kxland_2=12,vxland=0.98e6"
+"xland","Gibraltar","ixland_1=93,ixland_2=96,jxland_1=55,jxland_2=56,kxland_1=1,kxland_2=12,vxland=0.98e6"
+"xland","Black-Med","ixland_1=103,ixland_2=106,jxland_1=55,jxland_2=57,kxland_1=1,kxland_2=5,vxland=0.01e6"
+"xland","Black-Med","ixland_1=104,ixland_2=106,jxland_1=55,jxland_2=58,kxland_1=1,kxland_2=5,vxland=0.01e6" 
+"xland","Baltic","ixland_1=98,ixland_2=100,jxland_1=64,jxland_2=64,kxland_1=1,kxland_2=2,vxland=0.015e6"
+"xland","Baltic","ixland_1=98,ixland_2=100,jxland_1=65,jxland_2=65,kxland_1=1,kxland_2=2,vxland=0.015e6"
+"xland","Boothia-Fox","ixland_1=68,ixland_2=69,jxland_1=78,jxland_2=75,kxland_1=1,kxland_2=4,vxland=0.035e6"
+"xland","Boothia-Fox","ixland_1=69,ixland_2=70,jxland_1=78,jxland_2=75,kxland_1=1,kxland_2=4,vxland=0.035e6" 
+"xland","Unimak","ixland_1=40,ixland_2=42,jxland_1=65,jxland_2=64,kxland_1=1,kxland_2=12,vxland=1.e6"
+"xland","Unimak","ixland_1=41,ixland_2=43,jxland_1=65,jxland_2=64,kxland_1=1,kxland_2=6,vxland=1.e6"
+"xland","Japan","ixland_1=22,ixland_2=23,jxland_1=58,jxland_2=57,kxland_1=1,kxland_2=12,vxland=1.e6"
+"xland","Japan","ixland_1=21,ixland_2=24,jxland_1=58,jxland_2=58,kxland_1=1,kxland_2=12,vxland=1.e6" /
+
+"xland_insert","ocean_mod","xland_insert"
+"xland","Gibraltar","ixland_1=93,ixland_2=96,jxland_1=54,jxland_2=55,kxland_1=1,kxland_2=1,tauxland=86400.0"
+"xland","Gibraltar","ixland_1=93,ixland_2=96,jxland_1=55,jxland_2=56,kxland_1=1,kxland_2=1,tauxland=86400.0"
+"xland","Black-Med","ixland_1=103,ixland_2=106,jxland_1=55,jxland_2=57,kxland_1=1,kxland_2=1,tauxland=86400.0"
+"xland","Black-Med","ixland_1=104,ixland_2=106,jxland_1=55,jxland_2=58,kxland_1=1,kxland_2=1,tauxland=86400.0" 
+"xland","Baltic","ixland_1=98,ixland_2=100,jxland_1=64,jxland_2=64,kxland_1=1,kxland_2=2,tauxland=86400.0"
+"xland","Baltic","ixland_1=98,ixland_2=100,jxland_1=65,jxland_2=65,kxland_1=1,kxland_2=2,tauxland=86400.0"
+"xland","Boothia-Fox","ixland_1=68,ixland_2=69,jxland_1=78,jxland_2=75,kxland_1=1,kxland_2=4,tauxland=86400.0"
+"xland","Boothia-Fox","ixland_1=69,ixland_2=70,jxland_1=78,jxland_2=75,kxland_1=1,kxland_2=4,tauxland=86400.0" 
+"xland","Unimak","ixland_1=40,ixland_2=42,jxland_1=65,jxland_2=64,kxland_1=1,kxland_2=1,tauxland=86400.0"
+"xland","Unimak","ixland_1=41,ixland_2=43,jxland_1=65,jxland_2=64,kxland_1=1,kxland_2=1,tauxland=86400.0"
+"xland","Japan","ixland_1=22,ixland_2=23,jxland_1=58,jxland_2=57,kxland_1=1,kxland_2=1,tauxland=86400.0"
+"xland","Japan","ixland_1=21,ixland_2=24,jxland_1=58,jxland_2=58,kxland_1=1,kxland_2=1,tauxland=86400.0" /
+
+"diff_cbt_enhance","ocean_mod","diff_cbt_enhance"
+"diffcbt","Gibraltar","itable=93,jtable=55,ktable_1=1,ktable_2=11,diff_cbt_table=0.01"
+"diffcbt","Gibraltar","itable=93,jtable=54,ktable_1=1,ktable_2=11,diff_cbt_table=0.01"
+"diffcbt","Gibraltar","itable=96,jtable=55,ktable_1=1,ktable_2=11,diff_cbt_table=0.01"
+"diffcbt","Gibraltar","itable=96,jtable=56,ktable_1=1,ktable_2=11,diff_cbt_table=0.01"
+"diffcbt","Black-Med","itable=103,jtable=55,ktable_1=1,ktable_2=6,diff_cbt_table=0.01"
+"diffcbt","Black-Med","itable=104,jtable=55,ktable_1=1,ktable_2=6,diff_cbt_table=0.01"
+"diffcbt","Black-Med","itable=106,jtable=57,ktable_1=1,ktable_2=6,diff_cbt_table=0.01"
+"diffcbt","Black-Med","itable=106,jtable=58,ktable_1=1,ktable_2=6,diff_cbt_table=0.01" /
+
+
+"diag_tracers","ocean_mod","frazil"
+
+restart_file  = ocean_frazil.res.nc
+/
+
+
+"prog_tracers","ocean_mod","temp"
+
+horizontal-advection-scheme = mdppm 
+vertical-advection-scheme = mdppm 
+restart_file  = ocean_temp_salt.res.nc
+/
+
+"prog_tracers","ocean_mod","salt"
+
+horizontal-advection-scheme = mdppm 
+vertical-advection-scheme = mdppm 
+restart_file  = ocean_temp_salt.res.nc
+/
+
+"tracer_packages","ocean_mod","generic_bling"
+
+names = _
+horizontal-advection-scheme = mdfl_sweby
+vertical-advection-scheme = mdfl_sweby
+min_tracer_limit=0.0
+const_init_tracer = f
+const_init_value = 0.0
+/
+
+"namelists", "ocean_mod", "generic_bling/_"
+
+fast_gasex = 4.0
+do_14c = t
+do_carbon = t
+do_carbon_pre = t
+do_po4_pre = t
+do_nut_sources = f
+bury_caco3 = f
+initialize_if_missing = t
+/
+
+
+"tracer_packages","ocean_mod","ocean_ibgc"
+
+names = _
+horizontal-advection-scheme = mdfl_sweby
+vertical-advection-scheme = mdfl_sweby
+min_tracer_limit=0.0
+/
+
+
+"namelists", "ocean_mod", "ocean_ibgc/_"
+
+frac_14catm_file = INPUT/c14_atm_hist.nc
+frac_14catm_name = C14
+/
+
+
+"tracer_packages","ocean_mod","ocmip2_he"
+
+names = _
+horizontal-advection-scheme = mdfl_sweby
+vertical-advection-scheme = mdfl_sweby
+min_tracer_limit=0.0
+/
+
+"namelists","ocean_mod","ocmip2_he/_"
+
+src_he3_file = INPUT/src_he3.nc
+src_he3_name = V2
+src_he4_file = INPUT/src_he4.nc
+src_he4_name = V3
+src_he_depth_file = INPUT/src_he_depth.nc
+src_he_depth_name = V1
+he3_sourcefac = 0.532035231
+he4_sourcefac = 0.532035231
+/
+"fluxes","coupler_mod","he_3_atm_flux"
+
+# param 1 is 0.337/3.6e+05 from OCMIP2 howto: a * Xconv
+# param 2 is 1/1.025e+05 (Pa^-1)
+param = 9.36e-07, 9.7561e-06
+#flux_type = ocmip2
+#param = 1.0, 1.0
+flux_type =  air_sea_gas_flux
+implementation = ocmip2_data
+/
+
+"fluxes","coupler_mod","he_4_atm_flux"
+
+# param 1 is 0.337/3.6e+05 from OCMIP2 howto: a * Xconv
+# param 2 is 1/1.025e+05 (Pa^-1)
+param = 9.36e-07, 9.7561e-06
+#flux_type = ocmip2
+#param = 1.0, 1.0
+flux_type =  air_sea_gas_flux
+implementation = ocmip2_data
+/
+
+"fluxes","coupler_mod","he_3_man_flux"
+
+# param 1 is 0.337/3.6e+05 from OCMIP2 howto: a * Xconv
+# param 2 is 1/1.025e+05 (Pa^-1)
+param = 9.36e-07, 9.7561e-06
+#flux_type = ocmip2
+#param = 1.0, 1.0
+flux_type =  air_sea_gas_flux
+implementation = ocmip2_data
+/
+
+"fluxes","coupler_mod","he_4_man_flux"
+
+# param 1 is 0.337/3.6e+05 from OCMIP2 howto: a * Xconv
+# param 2 is 1/1.025e+05 (Pa^-1)
+param = 9.36e-07, 9.7561e-06
+#flux_type = ocmip2
+#param = 1.0, 1.0
+flux_type =  air_sea_gas_flux
+implementation = ocmip2_data
+/
+"tracer_packages","ocean_mod","ocean_residency"
+horizontal-advection-scheme = mdppm
+vertical-advection-scheme = mdppm
+units = yr
+min_tracer_limit=0.0
+const_init_tracer = t
+/
+"tracer_packages","ocean_mod","ocean_residency"
+names[0] = so_mode_dye_atl
+/
+
+"namelists","ocean_mod","ocean_residency/so_mode_dye_atl"
+num_regions = 3
+
+# surface region to set the dye
+north_bnd_1  = -30.0
+south_bnd_1  = -90.0
+west_bnd_1   = -70.0
+east_bnd_1   =  20.0
+top_bnd_1    =   0.0
+bottom_bnd_1 =   0.0
+module_name_1 = ocean_residency_range
+strings_1 = tracer_range, rho_neutral
+params_1 = 1026.5, 1027.1
+restore_region_value_1 = 1.0
+
+# surface region to set back to zero
+north_bnd_2  =  90.0,  90.0
+south_bnd_2  = -30.0, -90.0
+west_bnd_2   = -70.0,  20.0
+east_bnd_2   =  20.0, -70.0
+top_bnd_2    =   0.0,   0.0
+bottom_bnd_2 =   0.0,   0.0
+restore_region_value_2 = 0.0
+
+# surface region to set the dye
+north_bnd_3  = -30.0
+south_bnd_3  = -90.0
+west_bnd_3   = -70.0
+east_bnd_3   =  20.0
+top_bnd_3    =   0.0
+bottom_bnd_3 =   0.0
+module_name_3 = ocean_residency_range
+strings_3 = tracer_range, rho_neutral
+params_3 = 1026.5, 1027.1
+swap_module_3 = t
+restore_region_value_3 = 0.0
+
+integrate_region_value = 0.0
+/
+"tracer_packages","ocean_mod","ocean_residency"
+names[0] = so_mode_dye_indpac
+/
+
+"namelists","ocean_mod","ocean_residency/so_mode_dye_indpac"
+num_regions = 3
+
+# surface region to set the dye
+north_bnd_1  = -30.0
+south_bnd_1  = -90.0
+west_bnd_1   =  20.0
+east_bnd_1   = -70.0
+top_bnd_1    =   0.0
+bottom_bnd_1 =   0.0
+module_name_1 = ocean_residency_range
+strings_1 = tracer_range, rho_neutral
+params_1 = 1026.5, 1027.1
+restore_region_value_1 = 1.0
+
+# surface region to set back to zero
+north_bnd_2  =  90.0,  90.0
+south_bnd_2  = -30.0, -90.0
+west_bnd_2   =  20.0, -70.0
+east_bnd_2   = -70.0,  20.0
+top_bnd_2    =   0.0,   0.0
+bottom_bnd_2 =   0.0,   0.0
+restore_region_value_2 = 0.0
+
+# surface region to set the dye
+north_bnd_3  = -30.0
+south_bnd_3  = -90.0
+west_bnd_3   =  20.0
+east_bnd_3   = -70.0
+top_bnd_3    =   0.0
+bottom_bnd_3 =   0.0
+module_name_3 = ocean_residency_range
+strings_3 = tracer_range, rho_neutral
+params_3 = 1026.5, 1027.1
+swap_module_3 = t
+restore_region_value_3 = 0.0
+
+integrate_region_value = 0.0
+/
+"tracer_packages","ocean_mod","ocean_residency"
+names[0] = age_bottom_100
+/
+
+"namelists","ocean_mod","ocean_residency/age_bottom_100"
+south_bnd =   -90.0
+north_bnd =    90.0
+west_bnd =      0.0
+east_bnd =    360.0
+top_bnd =    -100.0
+bottom_bnd = -100.0
+/
+"tracer_packages","ocean_mod","ocean_residency"
+names[0] = age_bottom_100_plus
+/
+
+"namelists","ocean_mod","ocean_residency/age_bottom_100_plus"
+south_bnd =   -90.0,   -90.0
+north_bnd =    90.0,    90.0
+west_bnd =      0.0,     0.0
+east_bnd =    360.0,   360.0
+top_bnd =    -100.0, 10000.0
+bottom_bnd = -100.0, 10000.0
+/
+"tracer_packages","ocean_mod","ocean_residency"
+names[0] = age_surface
+/
+
+"namelists","ocean_mod","ocean_residency/age_surface"
+south_bnd = -90.0
+north_bnd =  90.0
+west_bnd =   0.0
+east_bnd = 360.0
+top_bnd = 0.0
+bottom_bnd = 0.0
+/
+
+EOF
+
+
+  touch data_table
+  cat >> data_table <<EOF
+# gridname, fieldname_code, fieldname_file,                 file_name,  ongrid, factor
+"ICE",           "sic_obs",          "SIC", "./INPUT/sst_ice_clim.nc", .false., 0.01
+"ICE",           "sit_obs",          "SIT", "./INPUT/sst_ice_clim.nc", .false., 1.0e+06
+"ICE",           "sst_obs",          "SST", "./INPUT/sst_ice_clim.nc", .false., 1.0
+# gridname,        fieldname_code,  fieldname_file,                                     file_name,  ongrid, factor
+"ATM",     "c14o2_flux_pcair_atm",           "CO2", "INPUT/ocmip2_siple_co2_atm_am2_bc-1-9999.nc",  .true.,   1.0e-06
+"ATM",       "co2_flux_pcair_atm",           "CO2", "INPUT/ocmip2_siple_co2_atm_am2_bc-1-9999.nc",  .true.,   1.0e-06
+"ATM",   "co2_sat_flux_pcair_atm",           "CO2", "INPUT/ocmip2_siple_co2_atm_am2_bc-1-9999.nc",  .true.,   1.0e-06
+"ATM",        "o2_flux_pcair_atm",              "",                                            "", .false.,   1.0
+"ATM",       "co2_flux_pcair_atm",           "CO2", "INPUT/ocmip2_siple_co2_atm_am2_bc-1-9999.nc",  .true.,   1.0e-06
+"ATM",                  "co2_bot",              "",                                            "", .false., 286.0e-6
+"ATM",        "o2_flux_pcair_atm",              "",                                            "", .false.,   1.0
+"OCN",  "runoff_alk_flux_ice_ocn",              "",                                            "", .false.,   0.48e-3
+"OCN",  "runoff_alk_flux_ice_ocn",              "",                                            "", .false.,   0.48e-3
+"OCN", "dry_dep_fed_flux_ice_ocn",          "FLUX",                 "INPUT/Soluble_Fe_Flux_PI.nc", .false.,  -1.0
+# gridname, fieldname_code,           fieldname_file, file_name,                                     ongrid,  factor
+"ATM",      "i14co2_flux_pcair_atm",  "CO2",          "INPUT/ocmip2_siple_co2_atm_am2_bc-1-9999.nc", .true.,  1.0e-06
+"ATM",      "ico2_flux_pcair_atm",    "CO2",          "INPUT/ocmip2_siple_co2_atm_am2_bc-1-9999.nc", .true.,  1.0e-06
+"ATM",      "ico2sat_flux_pcair_atm", "CO2",          "INPUT/ocmip2_siple_co2_atm_am2_bc-1-9999.nc", .true.,  1.0e-06
+"ATM",      "io2_flux_pcair_atm",     "",             "",                                            .false., 1.0
+
+# gridname,            fieldname_code, fieldname_file, file_name,  ongrid, factor
+"ATM",      "he_3_atm_flux_pcair_atm",             "",        "", .false., 7.23e-12
+"ATM",      "he_3_man_flux_pcair_atm",             "",        "", .false., 0.0
+"ATM",      "he_4_atm_flux_pcair_atm",             "",        "", .false., 5.24e-6
+"ATM",      "he_4_man_flux_pcair_atm",             "",        "", .false., 0.0
+
+EOF
+
+
+  
+
+  
+
+################## begin loop over $runsPerScript ####################
+  while ($irun <= $runsPerScript)
+
+#always_csh_from_xml
+cd INPUT
+     
+        
+          cd $work/INPUT
+   ncatted -O -h -a calendar,TIME,c,c,"NOLEAP" Soluble_Fe_Flux_PI.nc
+          cd $work
+        
+      
+cd $work
+    set days = $dayslist[$irun]
+    set months = $monthslist[$irun]
+
+    cat > input.nml <<EOF
+ &aerosol_nml
+    use_aerosol_timeseries = .false.,
+    time_varying_species = F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F
+    aerosol_dataset_entry =  1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+                             1860, 1, 1, 0, 0, 0,
+    family_names = "small_dust", "large_dust", "sulfate", "aerosol",
+    in_family1 = F,F,F,F,F,T,T,T,T,T,F,F,F,T,T,T,T,T,F,F,F,
+    in_family2 = F,F,F,F,F,F,F,F,F,F,T,T,T,F,F,F,F,F,T,T,T,
+    in_family3 = T,T,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,
+    in_family4 = T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,
+    data_names = "so4_anthro", "so4_natural", "organic_carbon", "black_carbon", "sea_salt",
+                 "anthro_dust_0.1", "anthro_dust_0.2", "anthro_dust_0.4", "anthro_dust_0.8",
+                 "anthro_dust_1.0", "anthro_dust_2.0", "anthro_dust_4.0", "anthro_dust_8.0",
+                 "natural_dust_0.1", "natural_dust_0.2", "natural_dust_0.4", "natural_dust_0.8",
+                 "natural_dust_1.0", "natural_dust_2.0", "natural_dust_4.0", "natural_dust_8.0",
+    filename = "aerosol.climatology.nc"
+/
+
+ &aerosolrad_package_nml
+    volcanic_dataset_entry = 1, 1, 1, 0, 0, 0,
+    using_volcanic_lw_files = .false.,
+    lw_ext_filename = "             "
+    lw_ext_root = "     "
+    lw_asy_filename = "             "
+    lw_asy_root = "     "
+    lw_ssa_filename = "             "
+    lw_ssa_root = "     "
+    using_volcanic_sw_files = .false.,
+    sw_ext_filename = "             "
+    sw_ext_root = "     "
+    sw_ssa_filename = "             "
+    sw_ssa_root = "     "
+    sw_asy_filename = "             "
+    sw_asy_root = "     "
+    do_lwaerosol = .true.,
+    do_swaerosol = .true.,
+    aerosol_data_set = 'shettle_fenn',
+    optical_filename = "aerosol.optical.dat",
+    aerosol_optical_names = "sulfate_30%", "sulfate_35%", "sulfate_40%", "sulfate_45%",
+                            "sulfate_50%", "sulfate_55%", "sulfate_60%", "sulfate_65%",
+                            "sulfate_70%", "sulfate_75%", "sulfate_80%", "sulfate_82%",
+                            "sulfate_84%", "sulfate_86%", "sulfate_88%", "sulfate_90%",
+                            "sulfate_91%", "sulfate_92%", "sulfate_93%", "sulfate_94%",
+                            "sulfate_95%", "sulfate_96%", "sulfate_97%", "sulfate_98%",
+                            "sulfate_99%", "sulfate_100%","organic_carbon","soot",
+                            "sea_salt",    "dust_0.1",    "dust_0.2",    "dust_0.4",
+                            "dust_0.8",    "dust_1.0",    "dust_2.0",    "dust_4.0",
+                            "dust_8.0"
+/
+
+ &amip_interp_nml
+    data_set = 'reynolds_oi',
+    date_out_of_range = 'fail'           ! cpl_share namelist
+/
+
+ &atmosphere_nml
+    physics_window = 0,0
+/
+
+ &bgrid_core_driver_nml
+   layout = 1,20
+/
+
+ &cg_drag_nml
+   cg_drag_freq = 1800,
+   cg_drag_offset = 0,
+   debug = .false.,
+   calculate_ked = .false.,
+   itest = 12,
+   jtest = 42,
+   ktest = 9,
+   Bt_0 = 0.0015,
+   lat_limit = 25.0
+/
+
+ &cloud_rad_nml
+       overlap = 2,
+       do_brenguier = .false.
+/
+
+ &cloud_spec_nml
+       cloud_type_form = 'strat'
+/
+
+ &cloudrad_package_nml
+       microphys_form = 'predicted'
+/
+
+ &clouds_nml
+       do_zonal_clouds = .false.,
+       do_obs_clouds  = .false.
+/
+
+ &coupler_nml
+        months = $months,
+        days   = $days,
+        current_date = 1,1,1,0,0,0,
+        calendar = 'NOLEAP',
+        dt_cpld = 10800,
+        dt_atmos = 5400,
+        do_atmos = .true.,
+        do_land = .true.,
+        do_ice = .true.,
+        do_ocean = .true.,
+        do_flux = .true.,
+        atmos_npes = 20,
+        ocean_npes = 25,
+        concurrent = .true.,
+        use_lag_fluxes=.true.    ! set to false for stock checking
+        check_stocks = -1        !  -1 (no checking), 0 (start/end only), 1 (every timestep)
+/
+
+ &cu_mo_trans_nml
+     diff_norm = 2.0
+/
+
+ &damping_driver_nml
+      trayfric = -40.,
+      nlev_rayfric = 1,
+      do_mg_drag = .true.,
+      do_cg_drag = .false.,
+      do_topo_drag = .false.,
+      do_conserve_energy = .true.
+/
+
+ &diag_cloud_nml
+       linvers = .false., lcnvcld = .false.,
+       l_theqv = .true., lomega = .true.,
+       low_lev_cloud_index = 16, nofog = .false.
+/
+
+ &diag_cloud_rad_nml
+       l_har_anvil   = .true.,
+       l_har_coldcld = .true.,
+       l_anom_abs_v  = .true.
+/
+
+ &diag_integral_nml
+       file_name = 'diag_integral.out'
+       time_units = 'days'
+       output_interval = -1.0
+/
+
+ &diag_manager_nml
+        max_input_fields = 800
+        max_output_fields = 800 
+        max_axes = 140
+        max_num_axis_sets = 40
+        mix_snapshot_average_fields=.false.
+/
+
+ &donner_deep_clouds_W_nml
+    using_dge_sw = .true.,
+    using_dge_lw = .true.
+/
+
+ &donner_deep_nml
+    donner_deep_offset = 0
+    donner_deep_freq = 1800
+    save_donner_deep_diagnostics=.true.
+    cell_liquid_size_type = 'bower'
+    cell_ice_size_type = 'default'
+    debug = .false.
+    kttest=5
+    itest=53
+    jtest=32
+    ktest_model=17
+/
+
+ &edt_nml
+    n_print_levels = 14,
+    use_qcmin = .true.,
+    num_pts_ij = 0,
+    min_adj_time = 1.0,
+    do_gaussian_cloud = .false.,
+    use_extrapolated_ql = .false.
+/
+
+ &ensemble_nml
+        ensemble_size = 1
+/
+
+ &entrain_nml
+    convect_shutoff = .true.,
+    apply_entrain = .true.,
+    parcel_buoy   = 0.25,
+    parcel_option = 2,
+    beta_rad      = 0.5,
+    Ashear        = 25.0, 
+    radperturb    = 0.10, 
+    critjump      = 0.10,
+    num_pts_ij    = 0,
+    i_entprt_gl   = 112, 96, 89,105, 81, 97,
+    j_entprt_gl   =  71, 61, 56, 64, 53, 46
+/
+
+ &esfsw_parameters_nml
+       sw_resolution = 'low',
+       sw_diff_streams = 1
+/
+
+ &flux_exchange_nml
+        debug_stocks = .FALSE.
+        divert_stocks_report = .TRUE.            ! default=F (to write stock info to stdout)
+        do_area_weighted_flux = .FALSE.          ! set to true for stock checking
+/
+
+ &fms_io_nml
+         threading_read='multi'
+         threading_write='single'
+         fileset_write='single'
+         max_files_r = 80
+         max_files_w = 80
+/
+
+ &fms_nml
+        clock_grain='COMPONENT'
+        domains_stack_size = 650000
+        stack_size = 0
+/
+
+ &fv_core_nml
+       restart_format = 'NETCDF'
+       nlon =96
+       mlat=60 
+       nlev = 24 
+       ncnst = 4 
+       change_time = .true.
+       n_split = 9
+       pnats = 0
+       consv_te = 0.70
+       layout=1,20
+       a_div=1.
+       b_div=1.
+/
+
+ &gas_tf_nml
+       interp_form = 'log' ,
+       do_calcstdco2tfs = .true.,
+       do_writestdco2tfs= .false.,
+       do_readstdco2tfs = .false.,
+       do_calcstdch4tfs = .true.,
+       do_writestdch4tfs= .false.,
+       do_readstdch4tfs = .false.,
+       do_calcstdn2otfs = .true.,
+       do_writestdn2otfs= .false.,
+       do_readstdn2otfs = .false.
+/
+
+ &generic_tracer_nml
+      do_generic_tracer=.true.
+      do_generic_BLING=.true.
+      do_generic_CFC=.false.
+      do_generic_TOPAZ=.false.
+/
+
+ &ice_albedo_nml
+         t_range = 10.
+/
+
+ &ice_model_nml
+      nsteps_dyn=72
+      nsteps_adv=1
+      num_part=6
+      spec_ice=.false.
+      ice_bulk_salin=0.005
+      alb_sno=0.80
+      t_range_melt=10.0
+      heat_rough_ice=5.0e-4
+      mom_rough_ice=5.0e-4
+      wd_turn=0.0
+/
+
+ &land_properties_nml
+        use_topo_rough    = .true.,
+        max_topo_rough    = 100.0,
+        topo_rough_factor = 0.01,
+        crit_snowmass_vec = 60.,   10., 25.,  40.,   40.,  5.,  5.,     5.,  5.,  5.,   5.,  100., 5.,  5.,
+        veg_rs_min_vec    = 43.6, 131., 87.1, 69.7, 218., 56.6, 0.01, 170., 56.6, 0.01, 0.01, 67., 0.,  0.,
+        min_nosnow_alb_vec= 0.149, 0.130, 0.132, 0.126, 0.143, 0.182, 0.333, 0.139, 0.160, 0.65, 0.06, 0.12, 999., 0.55,
+        max_nosnow_alb_vec= 0.149, 0.130, 0.132, 0.126, 0.143, 0.182, 0.333, 0.139, 0.160, 0.80, 0.06, 0.12, 999., 0.65,
+        factor_stomata = 0.2,
+        num_sfc_layers = 6,
+        sfc_heat_factor = 0.25,
+        use_desert_albedo_map = .true.
+        cover_dataset_entry = 1860, 1, 1, 0, 0, 0,
+        dynamic_cover_type   = .false.
+        read_old_ascii_cover = .true.
+        cover_dataset_init_year = 1860
+/
+
+ &lscale_cond_nml
+       do_evap = .true.
+/
+
+ &lw_gases_stdtf_nml
+       NSTDCO2LVLS=496
+/
+
+ &mg_drag_nml
+       gmax  = 0.5,
+       acoef = 1.,
+       do_conserve_energy = .true.,
+       source_of_sgsmtn = 'computed'
+/
+
+ &microphys_rad_nml
+       lwem_form = 'fuliou'
+/
+
+ &moist_conv_nml
+       beta = 0.0
+/
+
+ &moist_processes_nml
+       do_lsc=.false., do_strat=.true., do_mca=.false., do_ras=.true.,
+       do_donner_deep = .false.,
+       do_diag_clouds = .false., do_cmt=.true.,
+       do_rh_clouds = .false.,
+       do_gust_cv = .false.
+/
+
+ &monin_obukhov_nml
+            stable_option = 2,
+            rich_crit = 10.0,
+            zeta_trans = 0.5
+/
+
+ &my25_turb_nml
+        do_thv_stab = .true.,
+        TKEmin = 1.e-8,
+        AKmin_land = 5.,
+        AKmin_sea  = 0.
+/
+
+ &ocean_adv_vel_diag_nml
+      diag_step=2920
+      verbose_cfl=.false.
+      max_cfl_value=100.0
+      large_cfl_value=10.0
+/
+
+ &ocean_advection_velocity_nml
+      max_advection_velocity = 0.5
+/
+
+ &ocean_albedo_nml
+      ocean_albedo_option = 5           ! ESM2.1 setting (CM2.1 setting is option 3 - but only valid if sw not split into 4 bands)
+/
+
+ &ocean_barotropic_nml
+      debug_this_module=.false.
+      barotropic_leap_frog=.false.
+      barotropic_pred_corr=.true.
+      barotropic_time_stepping_mom4p0=.true.
+      barotropic_time_stepping_mom4p1=.false.
+      pred_corr_gamma=0.20
+      smooth_eta_t_laplacian=.false.
+      smooth_pbot_t_laplacian=.false.
+      smooth_eta_t_biharmonic=.true.
+      smooth_pbot_t_biharmonic=.true.
+      smooth_eta_diag_laplacian=.true.
+      vel_micom_lap_diag=1.0
+      vel_micom_lap=.05
+      vel_micom_bih=.01
+      truncate_eta=.false.
+      eta_max=8.0
+      verbose_truncate=.true.
+      frac_crit_cell_height=0.20 
+      diag_step=2920
+/
+
+ &ocean_bbc_nml
+      uresidual=0.05
+      cdbot=1.0e-3
+      cdbot_roughness_length=.false.
+      cdbot_hi=5.0e-3
+      cdbot_lo=1.0e-3
+      use_geothermal_heating=.true.
+/
+
+ &ocean_bih_friction_nml
+      bih_friction_scheme='general'
+/
+
+ &ocean_bih_tracer_nml
+      use_this_module=.false.
+/
+
+ &ocean_bihcst_friction_nml
+      use_this_module=.false.
+/
+
+ &ocean_bihgen_friction_nml
+      use_this_module=.false.
+/
+
+ &ocean_convect_nml
+      use_this_module=.false.
+      convect_full_scalar=.true.      
+      convect_full_vector=.false.
+/
+
+ &ocean_coriolis_nml
+      use_this_module=.true.
+      acor=0.50
+/
+
+ &ocean_density_nml
+     potrho_min=1028.0
+     potrho_max=1038.0
+     neutralrho_min=1020.0
+     neutralrho_max=1030.0
+     layer_nk=80
+     linear_eos=.false.
+/
+
+ &ocean_domains_nml
+      max_tracers = 60
+/
+
+ &ocean_drifters_nml
+      use_this_module=.false.
+/
+
+ &ocean_form_drag_nml
+      use_this_module=.false.
+      cprime_aiki=.60
+      use_form_drag_gbatch=.true.
+      use_form_drag_aiki=.true.
+      form_drag_gbatch_surf_layer=.false.
+      visc_cbu_form_drag_max=1.0
+      N_squared_min=1e-10
+      form_drag_gbatch_f2overN2=.true.
+      form_drag_aiki_scale_by_gm=.false.
+      form_drag_aiki_scale_by_gradH=.true.
+      form_drag_aiki_gradH_power=2.0
+      form_drag_aiki_gradH_max=.025
+/
+
+ &ocean_frazil_nml
+      use_this_module=.true.
+      freezing_temp_simple=.true.
+      freezing_temp_accurate=.false.
+      frazil_only_in_surface=.true.
+/
+
+ &ocean_grids_nml
+ 
+      debug_this_module=.true.
+/
+
+ &ocean_ibgc_nml
+      do_ideal=.true.
+      do_po4=.true.
+      do_po4f=.true.
+      do_bgc_felim=.false.
+      do_gasses=.true.
+      do_carbon_comp=.true.
+      do_radiocarbon=.true.
+      do_isio4=.true.
+      do_no3_iso=.true.
+/
+
+ &ocean_increment_eta_nml
+      use_this_module=.false.
+/
+
+ &ocean_increment_tracer_nml
+      use_this_module=.false.
+/
+
+ &ocean_increment_velocity_nml
+      use_this_module=.false.
+/
+
+ &ocean_lap_friction_nml
+      lap_friction_scheme='general'
+/
+
+ &ocean_lap_tracer_nml
+      use_this_module=.false.
+/
+
+ &ocean_lapcst_friction_nml
+      use_this_module=.false.
+/
+
+ &ocean_lapgen_friction_nml
+      use_this_module=.true.
+      k_smag_iso=2.0
+      k_smag_aniso=0.0
+      bottom_5point=.true.
+      vel_micom_iso=0.10
+      eq_vel_micom_iso=0.0
+      eq_lat_micom=0.0
+      equatorial_zonal=.true.
+      equatorial_zonal_lat=20.0
+      equatorial_no_smag=.true. 
+      viscosity_ncar=.true.
+      ncar_only_equatorial=.true.
+      vconst_1=8.0e6
+      vconst_2=0.0
+      vconst_3=0.80
+      vconst_4=0.5e-8
+      vconst_5=3
+      vconst_6=3e8
+      vconst_7=100.0
+      restrict_polar_visc=.true.
+      restrict_polar_visc_lat=60.0
+      restrict_polar_visc_ratio=0.35
+/
+
+ &ocean_mixdownslope_nml
+      use_this_module=.true.
+      debug_this_module=.false.
+      read_mixdownslope_mask=.true.
+      mixdownslope_mask_gfdl=.true.
+      mixdownslope_npts=4
+/
+
+ &ocean_model_nml
+        impose_init_from_restart=.false.
+        dt_ocean =10800,
+        layout=5,5
+        time_tendency='twolevel'
+        vertical_coordinate='pstar'
+        baroclinic_split = 2
+        surface_height_split = 1
+        barotropic_split = 80
+        debug=.false.
+/
+
+ &ocean_momentum_source_nml
+      use_this_module=.false.
+/
+
+ &ocean_nphysicsA_nml
+      use_this_module=.false.
+/
+
+ &ocean_nphysicsB_nml
+      use_this_module=.true.
+      debug_this_module=.false.
+      neutral_physics_limit=.true.
+      nblayer_smooth=.true.
+      surf_turb_thick_min_k=5
+      surf_turb_thick_min=50.0
+/
+
+ &ocean_nphysicsC_nml
+      use_this_module=.false.
+/
+
+ &ocean_nphysics_nml
+      use_this_module=.true.
+      debug_this_module=.false.
+      use_nphysicsA=.false.
+      use_nphysicsB=.true.
+      use_nphysicsC=.false.
+/
+
+ &ocean_nphysics_util_nml
+      smax=0.01
+      swidth=0.001
+      aredi=2400.0
+      agm=600.0
+      aredi_equal_agm=.false.
+      drhodz_mom4p1=.true.
+      drhodz_smooth_horz=.false.
+      drhodz_smooth_vert=.false.
+      tracer_mix_micom=.false.
+      vel_micom=0.0
+      agm_closure=.true.
+      agm_closure_scaling=0.1
+      agm_closure_min=200.0
+      agm_closure_max=1400.0
+      agm_closure_length_fixed=.false.
+      agm_closure_length_rossby=.false.
+      agm_closure_length_bczone=.false.
+      agm_closure_baroclinic=.true.
+      agm_closure_length=50.e3
+      agm_closure_buoy_freq=.004
+      agm_closure_upper_depth=100.0
+      agm_closure_lower_depth=2000.0
+      rossby_radius_max=100e3
+      rossby_radius_min=15e3
+/
+
+ &ocean_obc_nml
+
+/
+
+ &ocean_obs_nml
+
+/
+
+ &ocean_overexchange_nml
+      use_this_module=.false.
+      debug_this_module=.false.
+      overexch_npts=4
+      overexch_weight_far=.false.
+      overflow_umax=5.0
+/
+
+ &ocean_overflow_nml
+      use_this_module=.false.
+      debug_this_module=.false.
+/
+
+ &ocean_passive_nml
+
+/
+
+ &ocean_polar_filter_nml
+      use_this_module=.false.
+/
+
+ &ocean_pressure_nml
+
+/
+
+ &ocean_rivermix_nml
+      use_this_module=.true.
+      debug_this_module=.false.
+      river_insertion_thickness=40.0
+      river_diffusion_thickness=0.0      
+      river_diffusivity=0.0
+      river_diffuse_salt=.false.
+      river_diffuse_temp=.false.
+/
+
+ &ocean_riverspread_nml
+
+/
+
+ &ocean_rough_nml
+      rough_scheme = 'beljaars'
+/
+
+ &ocean_sbc_nml
+      use_waterflux=.true.
+      temp_restore_tscale=-10.
+      salt_restore_tscale=-20.                    ! turn to -20. when coupled model 
+      salt_restore_under_ice=.true.
+      read_restore_mask=.true.
+      restore_mask_gfdl=.true.
+      max_ice_thickness=8.0
+      salt_restore_as_salt_flux=.true.
+      zero_net_water_restore=.false.               ! .false. when couple
+      zero_net_water_coupler=.false.               ! .false. when couple
+      zero_net_water_couple_restore=.false.        ! .false. when couple
+      zero_net_salt_restore=.false.                ! .false. when couple  
+      avg_sfc_velocity=.true.
+      avg_sfc_temp_salt_eta=.true.
+      zero_water_fluxes=.false.
+      zero_heat_fluxes=.false.
+      zero_surface_stress=.false.
+      runoff_salinity=0.0
+/
+
+ &ocean_shortwave_csiro_nml
+      use_this_module=.false.
+/
+
+ &ocean_shortwave_gfdl_nml
+      use_this_module=.true.
+      debug_this_module=.false.
+      zmax_pen=200.0
+      read_chl=.false.
+      enforce_sw_frac=.true.
+      override_f_vis=.false.
+      optics_morel_antoine=.false.
+      optics_manizza=.true.
+/
+
+ &ocean_shortwave_jerlov_nml
+      use_this_module=.false.
+/
+
+ &ocean_shortwave_nml
+      use_this_module=.true.
+      use_shortwave_gfdl=.true. 
+      use_shortwave_csiro=.false.
+/
+
+ &ocean_sigma_transport_nml
+      use_this_module=.true.
+      sigma_diffusion_on=.true.
+      sigma_advection_on=.false.
+      sigma_advection_sgs_only=.false.
+      sigma_just_in_bottom_cell=.true.
+      tmask_sigma_on=.false.
+      sigma_diffusivity_ratio=1.e-6
+      tracer_mix_micom=.true.
+      vel_micom=0.050
+      sigma_umax=0.01
+      smooth_sigma_thickness=.true.
+      smooth_sigma_velocity=.true.
+      smooth_velmicom=0.2
+      thickness_sigma_layer= 100.0
+      thickness_sigma_max  = 100.0
+      thickness_sigma_min  = 100.0
+/
+
+ &ocean_sponges_eta_nml
+      use_this_module=.false.
+/
+
+ &ocean_sponges_tracer_nml
+      use_this_module=.false.
+      damp_coeff_3d=.false.
+/
+
+ &ocean_sponges_velocity_nml
+      use_this_module=.false.
+/
+
+ &ocean_submesoscale_nml
+      use_this_module=.true.
+      debug_this_module=.false.
+      use_hblt_equal_mld=.true.
+      min_kblt=4
+      smooth_hblt=.false.
+      limit_psi=.true.
+      limit_psi_velocity_scale=0.10
+      front_length_deform_radius=.true.
+      front_length_const=5.e3
+/
+
+ &ocean_tempsalt_nml
+      temperature_variable='potential_temp'
+      pottemp_2nd_iteration=.true.
+      t_min=-5.0
+      t_max = 55.0
+      s_min = -1.0
+      s_max = 55.0
+      t_min_limit =-2.0
+      t_max_limit =32.0
+      s_min_limit =3.0
+      s_max_limit =42.0
+/
+
+ &ocean_thickness_nml
+      debug_this_module=.false.
+      debug_this_module_detail=.false.
+      thickness_dzt_min_init=2.0
+      thickness_dzt_min=1.0
+      thickness_method='energetic'
+      initialize_zero_eta=.false.
+      read_rescale_rho0_mask=.true.
+      rescale_rho0_mask_gfdl=.true.
+      rescale_rho0_basin_label=7.0
+      rescale_rho0_value=.75
+/
+
+ &ocean_time_filter_nml
+
+/
+
+ &ocean_topog_nml
+      min_thickness=5.0
+/
+
+ &ocean_tracer_advect_nml
+      debug_this_module=.false.
+      advect_sweby_all=.false.
+/
+
+ &ocean_tracer_diag_nml
+      tracer_conserve_days=30.0
+      diag_step=2920
+      do_bitwise_exact_sum=.false.
+/
+
+ &ocean_tracer_nml
+      debug_this_module=.false.
+      zero_tendency=.false.
+      remap_depth_to_s_init=.false.
+      zero_tracer_source=.false.
+      tmask_limit_ts_same=.true.
+      frazil_heating_before_vphysics=.false.
+      frazil_heating_after_vphysics=.true.
+/
+
+ &ocean_velocity_advect_nml
+
+/
+
+ &ocean_velocity_diag_nml
+      debug_this_module=.false.
+      diag_step=2920
+      energy_diag_step=2920
+      max_cfl_value=100.0
+      large_cfl_value=10.0
+/
+
+ &ocean_velocity_nml
+      truncate_velocity=.false.
+      truncate_verbose=.true.
+      truncate_velocity_value=2.0
+      zero_tendency=.false.
+      adams_bashforth_third=.true.
+/
+
+ &ocean_vert_chen_nml
+
+/
+
+ &ocean_vert_const_nml
+
+/
+
+ &ocean_vert_gotm_nml
+
+/
+
+ &ocean_vert_kpp_iow_nml
+      use_this_module=.false.
+/
+
+ &ocean_vert_kpp_mom4p0_nml
+      use_this_module=.false.
+/
+
+ &ocean_vert_kpp_nml
+      use_this_module=.true.
+      diff_cbt_iw=0.0
+      visc_cbu_iw=0.0
+      double_diffusion=.true.
+      Ricr=0.3
+      smooth_blmc=.true.
+/
+
+ &ocean_vert_mix_nml
+      aidif=1.0      
+      vert_mix_scheme='kpp'
+      vert_diff_back_via_max=.true.
+      use_diff_cbt_table=.false.
+      linear_taper_diff_cbt_table=.false.          
+      bryan_lewis_diffusivity=.false.
+      bryan_lewis_lat_depend=.false.
+      bryan_lewis_lat_transition=35.0
+      afkph_90=0.75
+      dfkph_90=0.95
+      sfkph_90=4.5e-5
+      zfkph_90=2500.0e2
+      afkph_00=0.65
+      dfkph_00=1.15
+      sfkph_00=4.5e-5
+      zfkph_00=2500.0e2
+/
+
+ &ocean_vert_pp_nml
+
+/
+
+ &ocean_vert_tidal_nml
+      use_this_module=.true.
+      use_wave_dissipation=.true.
+      use_drag_dissipation=.true.
+      read_wave_dissipation=.false.
+      fixed_wave_dissipation=.false.
+      read_tide_speed=.true.
+      read_roughness=.true.
+      reading_roughness_amp=.true.
+      reading_roughness_length=.false.
+      roughness_scale=30e3
+      tide_speed_data_on_t_grid=.true.
+      drhodz_min=1e-12
+      mixing_efficiency_n2depend=.true.
+      max_wave_diffusivity=100.0e-4
+      wave_energy_flux_max=0.10
+      decay_scale=300.0
+      shelf_depth_cutoff=300.0
+      background_diffusivity=1.e-5
+      background_viscosity=1.e-4
+/
+
+ &ocean_xlandinsert_nml
+      use_this_module=.true.
+      verbose_init=.true.
+/
+
+ &ocean_xlandmix_nml
+      use_this_module=.true.
+      verbose_init=.true.
+      xlandmix_kmt=.true.
+/
+
+ &oda_core_nml
+
+/
+
+ &oda_nml
+
+/
+
+ &ozone_nml
+       basic_ozone_type = 'fixed_year' ,
+       ozone_dataset_entry = 1860, 1, 1, 0, 0, 0,
+       data_name = "ozone",
+       filename = "o3.climatology.nc"
+/
+
+ &physics_driver_nml
+   do_modis_yim = .false.
+/
+
+ &rad_output_file_nml
+       write_data_file=.true.
+/
+
+ &rad_utilities_nml
+
+/
+
+ &radiation_diag_nml
+       iradprt_gl = 20, 6,
+       jradprt_gl = 12, 20,
+       num_pts_ij = 0
+/
+
+ &radiation_driver_nml
+       rad_time_step= 10800,
+       time_varying_solar_constant = .false.,
+       solar_dataset_entry = 1860,1,1,0,0,0,
+       rad_package = 'sea_esf',
+       do_clear_sky_pass=.true.,
+       calc_hemi_integrals = .false.,
+       renormalize_sw_fluxes=.true.,
+       all_step_diagnostics = .true.,
+       zenith_spec = 'diurnally_varying',
+       use_co2_tracer_field = .false.
+/
+
+ &radiative_gases_nml
+       verbose = 3
+       gas_printout_freq = 240
+
+       time_varying_co2 = .false.,
+       co2_variation_type = 'linear',
+       co2_dataset_entry = 1860,1,1,0,0,0,
+       co2_specification_type = 'time_series'
+       co2_data_source = 'input'
+
+       time_varying_ch4 = .false.,
+       ch4_variation_type = 'linear'
+       ch4_dataset_entry = 1860, 1, 1, 0, 0, 0,
+       ch4_specification_type = 'time_series'
+       ch4_data_source = 'input'
+
+       time_varying_n2o = .false.,
+       n2o_variation_type = 'linear'
+       n2o_dataset_entry = 1860, 1, 1, 0, 0, 0,
+       n2o_specification_type = 'time_series'
+       n2o_data_source = 'input'
+
+       time_varying_f11 = .false.,
+       f11_variation_type = 'linear'
+       f11_dataset_entry = 1860, 1, 1, 0, 0, 0,
+       f11_specification_type = 'time_series'
+       f11_data_source = 'input'
+
+       time_varying_f12 = .false.,
+       f12_variation_type = 'linear'
+       f12_dataset_entry = 1860, 1, 1, 0, 0, 0,
+       f12_specification_type = 'time_series'
+       f12_data_source = 'input'
+
+       time_varying_f113 = .false.,
+       f113_variation_type = 'linear'
+       f113_dataset_entry = 1860, 1, 1, 0, 0, 0,
+       f113_specification_type = 'time_series'
+       f113_data_source = 'input'
+
+       time_varying_f22 = .false.,
+       f22_variation_type = 'linear'
+       f22_dataset_entry = 1860, 1, 1, 0, 0, 0,
+       f22_specification_type = 'time_series'
+       f22_data_source = 'input'
+/
+
+ &ras_nml
+       rasal0 = 0.75
+       aratio = 1.0,
+       modify_pbl=.true.
+       rn_frac_bot = 0.5,
+       rn_pbot = 800.0e2,
+       puplim =  20.0e02,
+       rn_ptop = 500.0e2,
+       rn_frac_top = 0.975,
+       Tokioka_on = .true.,
+       Tokioka_con = 0.025,
+       Tokioka_plim = 500.0e2,
+       a = 1.6851, 1.1686, 0.7663, 0.5255, 0.4100, 0.3677,
+        0.3151, 0.2216, 0.1521, 0.0750, 0.0000, 0.0000,
+        0.0000, 0.0000, 0.0000
+/
+
+ &rh_based_clouds_nml
+       cirrus_cld_prop_form = 'part', 
+       cldht_type_form = '93'
+/
+
+ &rivers_nml
+      min_land_frac  = 0.,      ! Allow river discharge points to go to sea (for Antarctic river rerouting)
+      min_water_frac = 0.3
+/
+
+ &sat_vapor_pres_nml
+       construct_table_wrt_liq = .true.
+       construct_table_wrt_liq_and_ice = .true.
+/
+
+ &sealw99_nml
+       do_thick = .false.,
+       do_nlte = .false.,
+       do_lwcldemiss = .true.,
+       continuum_form = 'ckd2.1',
+       linecatalog_form = 'hitran_2000',
+
+       calc_co2_tfs_on_first_step = .false.,
+       calc_co2_tfs_monthly = .true.,
+       co2_tf_time_displacement = 0.0,
+
+       calc_ch4_tfs_on_first_step = .true.,
+       calc_ch4_tfs_monthly = .false.,
+       ch4_tf_time_displacement = 0.0,
+
+       calc_n2o_tfs_on_first_step = .true.,
+       calc_n2o_tfs_monthly = .false.,
+       n2o_tf_time_displacement = 0.0,
+
+       verbose = 5
+/
+
+ &shortwave_driver_nml
+       do_cmip_diagnostics = .true.,
+       calculate_volcanic_sw_heating = .false.,
+       swform = 'esfsw99'
+/
+
+ &soil_nml
+      conserve_glacier_mass = .true.,
+      conserve_glacier_snow_mass = .true.,
+      n_levels = 18,
+      dz=0.02, 0.04, 0.04, 0.05, 0.05, 0.1, 0.1, 0.2, 0.2, 0.2, 0.4, 0.4, 0.4, 0.4, 0.4, 1., 1., 1.,
+      freezable_water = 0, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300
+/
+
+ &stable_bl_turb_nml
+    alsm = 500.0,
+    alsh = 500.0
+/
+
+ &strat_cloud_nml
+        U00 = 0.800,
+        U00_profile = .true.,
+        rthresh =  10.0,
+        Dmin = 1.0e-07,
+        n_land = 300.e6,
+        diff_thresh = 0.1,
+        mc_thresh = 0.001,
+        eros_scale = 1.e-6,
+        eros_choice = .true.,
+        eros_scale_c = 8.e-6,
+        eros_scale_t = 3.e-5,
+        super_choice = .true.,
+        tracer_advec = .true.,
+        do_old_snowmelt=.false.
+/
+
+ &surface_flux_nml
+
+/
+
+ &time_manager_nml
+
+/
+
+ &topo_rough_nml
+        use_topo_rough    = .true.,
+        max_topo_rough    = 100.0,
+        topo_rough_factor = 0.01
+/
+
+ &topography_nml
+        topog_file = 'INPUT/navy_topography.data.nc'
+/
+
+ &vegetation_nml
+       klev = 7
+/
+
+ &vert_diff_driver_nml
+       do_conserve_energy = .true.
+/
+
+ &vert_turb_driver_nml
+     use_tau          = .false.,
+     gust_scheme      = 'beljaars',
+     do_mellor_yamada = .false.,
+     do_entrain       = .true.,
+     do_edt           = .false.,
+     do_diffusivity   = .false.,
+     do_stable_bl = .true.,
+     do_shallow_conv  = .false.
+/
+
+ &xgrid_nml
+        make_exchange_reproduce = .false.
+        interp_method = 'second_order'
+/
+
+EOF
+
+
+#   --- run the model ---
+    echo loop_$irun/$runsPerScript
+    echo run
+
+    
+    if ( ! $?MPIRUN_EXEC_PREFIX ) setenv MPIRUN_EXEC_PREFIX 
+    if ($?PBS_NODEFILE) then
+      setenv MPI_NPROCS `wc -l $PBS_NODEFILE`
+      mpirun -np $npes -machinefile $PBS_NODEFILE ./$executable:t |& tee fms.out
+    else
+      mpirun -np $npes ./$executable:t |& tee fms.out
+    endif
+
+
+    if ( $status != 0 ) then
+      set cores_dumped = 0
+      foreach corefile (`ls core*`)
+        echo "dump of core file $corefile" > $corefile.out
+        $MPI_COREDUMP_DEBUGGER $executable:t $corefile >> $corefile.out &
+        set cores_dumped = `expr $cores_dumped + 1`
+      end 
+      unset echo
+      #wait for background jobs to complete
+      wait
+      set MPI_FAIL
+      set outputDir = ${outputDir}_crash
+      if ( ! -d $outputDir/ascii ) mkdir -p $outputDir/ascii
+      if ( $cores_dumped != 0 ) then
+        cat core*.out >> fms.out
+        cat core*.out
+        echo "ERROR: in mpirun, core dumped: run $ireload, loop $irun" 
+      else
+        set cdsize = `limit coredumpsize`
+        echo "ERROR: in mpirun, no cores produced: run $ireload, loop $irun"
+        echo "NOTE: You are using $cdsize"
+      endif
+    endif
+
+#   --- generate date for file names ---
+    set begindate = `time_stamp -bf digital`
+    if ( $begindate == "" ) set begindate = tmp`date '+%j%H%M%S'`
+    set enddate = `time_stamp -ef digital`
+    if ( $enddate == "" ) set enddate = tmp`date '+%j%H%M%S'`
+    set fyear = `echo $enddate | cut -c -4`
+
+
+    cd $work
+    if ( -f time_stamp.out ) rm -f time_stamp.out
+
+# mppnccombine files that do not necessarily start with 0000 and are not
+# continuous. For example, when you use 40 PEs but need to combine just 3 files:
+# file.nc.0012, file.nc.0015, file.nc.0032.  For convenience, the word "region"
+# has been prefixed to these files in diag_manager. This combines all files
+# starting with "region" The prefix "region" is truncated in the combined file so
+# that the final file has the same name given by the user in diag_table. --gtn
+    set item_previous = ""
+    set region_files = `ls rregion*`
+    foreach item ( $region_files )
+        if ( $item:r != $item_previous:r ) then
+           set input_files = ( `ls $item:r.*` )
+           if ( $#input_files > 0 ) then
+              set output_file
+              set output_file = ( $output_file  `echo $item:r | sed "s/^rregion//"` )
+              mppnccombine $output_file $input_files
+              if ( $status != 0 ) then
+                echo "ERROR: in execution of mppnccombine on restarts"
+                exit 1
+              endif
+#MAP              rm $input_files
+           endif
+        else
+           continue
+        endif
+        set item_previous = $item
+    end
+
+#   --- save ascii output files to local disk ---
+    if ( ! -d $outputDir/ascii ) mkdir -p $outputDir/ascii
+    foreach out (`ls -1 | egrep "\<out\>|\<results\>"`)
+      mv $out $begindate.$out
+    end
+    if ( -e $outputDir/ascii/ascii_out.cpio ) then
+      ls -1 | egrep "\<out\>|\<results\>" | cpio -C 65536 -oAO $outputDir/ascii/ascii_out.cpio
+    else
+      ls -1 | egrep "\<out\>|\<results\>" | cpio -C 65536 -oO $outputDir/ascii/ascii_out.cpio
+    endif
+    foreach out (`ls -1 | egrep "\<out\>|\<results\>"`)
+      rm -f $out
+    end
+
+
+
+#   --- save/archive restart files ---
+    cd RESTART
+
+    set multires = `ls -1 | egrep "\<res\>.*\.....\b"`
+    set resfiles = `ls -1 | egrep "\<res\>|\<nc\>"`
+    if ( $#resfiles > 0 ) then
+      set restart_file = $outputDir/restart/$enddate.cpio
+      if ( $#multires > 0 ) set restart_file = $outputDir/restart/$enddate.0000.cpio
+      if ( ! -d $restart_file:h ) mkdir -p $restart_file:h
+      unset echo
+      if ( ! -e $restart_file:h ) then
+	echo "ERROR: restart directory could not be created: $restart_file:h"
+        exit 1
+      else if ( ! -d $restart_file:h ) then
+	echo "ERROR: $restart_file:h exists, but is not a directory."
+        exit 1
+      else if ( ! -w $restart_file:h ) then
+	echo "ERROR: restart directory is not writable: $restart_file:h"
+        exit 1
+      endif
+      set echo
+#     --- also save namelist and diag_table, data_table, field_table ---
+      cp $work/input.nml .
+      cp $work/*_table .
+      cp $rtsxml .
+      cp $scriptName ./runscript
+      set files = ( $resfiles input.nml *_table $rtsxml:t $scriptName:t )
+      ls -1 $files | cpio -C 524288 -oO $restart_file
+#     --- set up restart for next run ---
+
+
+#MAP!!
+      if ( $irun < $runsPerScript ) then
+         find $work/INPUT -type f -maxdepth 1 -regex '.*\.res' -exec cp {} \;
+         find $work/INPUT -type f -maxdepth 1 -regex '.*\.res\..*' -exec cp {} \;
+         find $work/RESTART -type f -maxdepth 1 -regex '.*\.nc' -exec cp -f {} ../INPUT \;
+         find $work/RESTART -type f -maxdepth 1 -regex '.*\.nc\.....' -exec cp -f {} ../INPUT \;
+         find $work/RESTART -type f -maxdepth 1 -regex '.*\.res' -exec cp -f {} ../INPUT \;
+         find $work/RESTART -type f -maxdepth 1 -regex '.*\.res\..*' -exec cp -f {} ../INPUT \;
+      endif
+    endif
+    cd $work
+
+#   --- save netcdf and data files ---
+    if ( ! -d $outputDir/history ) mkdir -p $outputDir/history
+    unset echo
+    if ( ! -e $outputDir/history ) then
+      echo "ERROR: history directory could not be"
+      echo "       created: $outputDir/history"
+      exit 1
+    else if ( ! -d $outputDir/history ) then
+      echo "ERROR: $outputDir/history exists, but is not a directory."
+      exit 1
+    else if ( ! -w $outputDir/history ) then
+      echo "ERROR: history directory is not"
+      echo "       writable: $outputDir/history"
+      exit 1
+    endif
+    set echo
+
+#   --- mppnccombine history files (online) 
+    foreach suffix (nc data)
+      foreach diagoutput (`ls -1 | egrep "\<$suffix\>\.....\b" | sed 's/\.[0-9][0-9][0-9][0-9]//g' | sort -u`)
+         ( mppnccombine $diagoutput $diagoutput.* || echo "ERROR: mppnccombine $diagoutput" ; test -s $diagoutput && rm -f $diagoutput.???? ) &
+      end
+      wait
+      foreach file ( `ls -1 | egrep "\<$suffix\>"` )
+         mv $file $begindate.$file
+      end
+      set files = `ls $begindate.*.$suffix`
+      if ( $#files > 0 ) then
+         set arfile = $outputDir/history/
+         if ( ! -e $arfile:h ) mkdir -p $arfile:h
+         if ( $#combine_list > 0 ) then
+           if ( -e $outputDir/history/$combine_list[1] ) then
+              set arfile = $outputDir/history/$combine_list[1]
+              #dmget $arfile
+              ls -1 $files | cpio -p $arfile
+           else
+              echo "ERROR: mppnccombine: $outputDir/history/$combine_list[1] does not exist"
+              ls -1 $files | cpio -p $arfile
+           endif
+         else
+           ls -1 $files | cpio -p $arfile
+         endif
+         #dmput $arfile
+         set combine_list = ( $combine_list $begindate.$suffix )
+         rm -f $files
+         
+      endif
+      set files = `ls -1 | egrep "$begindate\..*\<$suffix\>\.....\b"`
+      if ( $#files > 0 ) then
+         set arfile = $outputDir/history/
+         echo "ERROR: in mppnccombine, individual output files copied to $arfile"
+         if ( ! -e $arfile:h ) mkdir -p $arfile:h
+         if ( -e $arfile ) then
+           #dmget $arfile
+           ls -1 $files | cpio -p $arfile
+         else
+           ls -1 $files | cpio -p $arfile
+         endif
+         #dmput $arfile
+         rm -f $files
+      
+      endif
+    end
+
+#   --- postprocess history files (offline) 
+    if ( $combineFreq != 0 ) then
+       if ( ( $#combine_list == $combineFreq ) || $#resfiles == 0 ) then
+           set firstdate = `echo $combine_list[1] | cut -f1 -d'.'`
+           frepp -t $firstdate -v -c split -d $outputDir/history -s -x $rtsxml $name
+           set combine_list = ( )
+       endif
+    endif
+ 
+
+#   --- terminate script if mpirun crashed ---
+    if ( $?MPI_FAIL ) then
+      unset echo
+      echo "ERROR: in mpirun, core dumped: run $ireload, loop $irun" 
+      echo "ERROR: Any output that may have been generated " 
+      echo "       is in $outputDir" 
+      if ( $?ENVIRONMENT ) then
+      if ( "$ENVIRONMENT" == 'BATCH' && $ireload > 1 ) then
+         set lc = `wc -l $SGE_STDOUT_PATH | awk '{print $1}'`
+         Mail -s "$HOST $JOB_ID $USER $name (r$ireload, l$irun) $SGE_STDOUT_PATH" $USER <<ENDMAIL
+Reloaded batch job failed near line $lc of
+$SGE_STDOUT_PATH
+for experiment:
+$name
+in xml file:
+$rtsxml
+
+Runscript:
+$scriptName
+ENDMAIL
+         sleep 30
+      endif
+      endif
+
+      exit 1
+    endif
+
+#   --- terminate script if there are no restart files ---
+    if ( $#resfiles == 0 ) then
+      unset echo
+      echo "ERROR: no restart files exist, run $ireload, loop $irun" 
+      exit 1
+    endif
+
+#   --- write new reload information ---
+    @ irun++
+
+        set now = `date +%s`
+    #test that archive is available
+    if ( ! -w $reload_file:h ) then
+      unset echo
+      echo "Exiting early, archive unavailable, resubmitting at $now"
+      Mail -s "job $JOB_ID $name has been resubmitted" $USER <<END
+Your FRE production job ( $JOB_ID ) has been stopped and
+resubmitted to the batch queue because your output directory is not
+writeable, which implies archive is not available.  
+
+Your job will be re-run by the system as soon as possible.
+
+Job details:
+$name (run $ireload, loop $irun) running on $HOST
+Batch job stdout:
+$SGE_STDOUT_PATH
+END
+      sleep 30
+      exit 99
+    endif
+
+    echo "Writing reload information to $reload_file at $now"
+    if ( -f $reload_file ) then
+      mv -f $reload_file ${reload_file}_prev
+    endif
+    if ( $irun <= $runsPerScript ) then
+      echo "set irun         =  $irun"          >  $reload_file
+    else
+      @ ireload++
+      echo "set irun         =  1"              >  $reload_file
+    endif
+
+    echo   "set ireload      =  $ireload"       >> $reload_file
+
+    echo   "set initCond     =  $restart_file"  >> $reload_file
+    echo   "set combine_list = ($combine_list)" >> $reload_file
+    echo   "set fyear        =  $fyear"         >> $reload_file
+
+        #exit when requested production simTime complete
+    @ currentSeg = ( $ireload - 1 ) * 20 + $irun
+    if ( $currentSeg > 300 ) break
+
+
+  end
+################# loop over $runsPerScript ended ###################
+
+# --- reload script if necessary ---
+  set project = ""
+  if ( $ireload <= $numSubmissions ) then
+    if ( -f $queue_file ) then
+      if ( -r $queue_file ) then
+        source $queue_file
+      else
+        unset echo
+        echo "ERROR: queue file is not readable: $queue_file"
+        exit 1
+      endif
+    endif
+
+    #figure out which queue to use next
+    if ( $alloc > 0 ) then
+      echo reloading
+#      set resubmit = "ssh hhpc-hn1 qsub $scriptName"
+      set resubmit = "ssh login qsub $scriptName"
+      @ alloc--
+    else if ( $windf > 0 ) then
+     if ( "$project" != "" ) then
+         set projlist = (`qconf -sprjl`)
+         set firstc = `echo $project | sed 's/.* //' | sed 's/\(.*\)\(.$\)/\1/'`
+         set lastc  = `echo $project | sed 's/.* //' | sed 's/\(.*\)\(.$\)/\2/'`
+         if ( "$lastc" == "p" ) then
+            foreach p ($projlist)
+               if ( "$p" == "${firstc}d" || "$p" == "$firstc" ) set project = ( -P $p )
+            end
+         endif
+      endif
+      echo reloading
+#      set resubmit = "ssh hhpc-hn1 qsub $scriptName"
+      set resubmit = "ssh login qsub $scriptName"
+      @ windf--
+    else
+      echo "WARNING: Have not reached $numSubmissions submissions, but no queue time remaining"  
+      set resubmit = ""
+    endif
+
+    #write new queue information
+    if ( -f $queue_file ) rm -f $queue_file 
+    echo   "set alloc = $alloc"       >  $queue_file
+    echo   "set windf = $windf"       >> $queue_file
+    if ( "$project" != "" ) echo "set project = ( $project )" >> $queue_file
+    chmod 664 $queue_file
+  
+    #if user has set job in stop state, note this in queue_file, exit here
+    if ( $?stop ) then 
+      echo "set stop"                 >> $queue_file
+      unset echo
+      echo "NOTE: Stopping execution"
+      exit 0
+    endif
+
+    #resubmit
+    if ( -f $scriptName ) then
+      $resubmit
+    else
+      unset echo
+      echo "WARNING: reload script does not exist, run $ireload, loop $irun" 
+      echo "         $scriptName could not be resubmitted" 
+    endif
+
+  endif
+
+
+unset echo
+echo end_of_run
+echo "Removing $work directory"
+/home/rdslater/fms/bin/clean_scratch_work $work
+echo "NOTE: Natural end-of-script for $scriptName."
+exit 0
+
