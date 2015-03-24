@@ -1,0 +1,136 @@
+ name     title                             I         J         K         L
+ HIGH_CLD_AMT
+          high cloud amount                1:96      1:60      ...       1:12
+ LOW_CLD_AMT
+          low cloud amount                 1:96      1:60      ...       1:12
+ MID_CLD_AMT
+          mid cloud amount                 1:96      1:60      ...       1:12
+ TOT_CLD_AMT
+          total cloud amount               1:96      1:60      ...       1:12
+ TAUBX    x base flux for grav wave drag   1:96      1:60      ...       1:12
+ TAUBY    y base flux for grav wave drag   1:96      1:60      ...       1:12
+ UDT_GWD  u wind tendency for gravity wav  1:96      1:60      1:24      1:12
+ VDT_GWD  v wind tendency for gravity wav  1:96      1:60      1:24      1:12
+ UDT_RDAMP
+          u wind tendency for Rayleigh da  1:96      1:60      1:24      1:12
+ VDT_RDAMP
+          v wind tendency for Rayleigh da  1:96      1:60      1:24      1:12
+ DRAG_HEAT
+          drag coeff for heat              1:96      1:60      ...       1:12
+ DRAG_MOIST
+          drag coeff for moisture          1:96      1:60      ...       1:12
+ DRAG_MOM drag coeff for momentum          1:96      1:60      ...       1:12
+ EVAP     evaporation rate                 1:96      1:60      ...       1:12
+ ICE_MASK fractional amount of sea ice     1:96      1:60      ...       1:12
+ LAND_MASK
+          fractional amount of land        1:96      1:60      ...       ...
+ LWFLX    net (down-up) longwave flux      1:96      1:60      ...       1:12
+ RH_REF   relative humidity at 2 m         1:96      1:60      ...       1:12
+ SHFLX    sensible heat flux               1:96      1:60      ...       1:12
+ TAU_X    zonal wind stress                1:96      1:60      ...       1:12
+ TAU_Y    meridional wind stress           1:96      1:60      ...       1:12
+ T_REF    temperature at 2 m               1:96      1:60      ...       1:12
+ T_REF_MIN
+          temperature at 2 m               1:96      1:60      ...       1:12
+ T_REF_MAX
+          temperature at 2 m               1:96      1:60      ...       1:12
+ T_SURF   surface temperature              1:96      1:60      ...       1:12
+ U_REF    zonal wind component at 10 m     1:96      1:60      ...       1:12
+ V_REF    meridional wind component at 10  1:96      1:60      ...       1:12
+ WIND     wind speed for flux calculation  1:96      1:60      ...       1:12
+ BK       vertical coordinate sigma value  ...       ...       1:25      ...
+ PK       pressure part of the hybrid coo  ...       ...       1:25      ...
+ ZSURF    surface height                   1:96      1:60      ...       ...
+ CLD_AMT  cloud fraction                   1:96      1:60      1:24      1:12
+ ICE_WAT  cloud ice water specific humidi  1:96      1:60      1:24      1:12
+ LIQ_WAT  cloud liquid specific humidity   1:96      1:60      1:24      1:12
+ OMEGA    omega                            1:96      1:60      1:24      1:12
+ PS       surface pressure                 1:96      1:60      ...       1:12
+ SPHUM    specific humidity                1:96      1:60      1:24      1:12
+ TEMP     temperature                      1:96      1:60      1:24      1:12
+ UCOMP    zonal wind                       1:96      1:60      1:24      1:12
+ VCOMP    meridional wind                  1:96      1:60      1:24      1:12
+ IWP      Ice water path                   1:96      1:60      ...       1:12
+ LWP      Liquid water path                1:96      1:60      ...       1:12
+ PRECIP   Total precipitation rate         1:96      1:60      ...       1:12
+ PREC_CONV
+          Precipitation rate from convect  1:96      1:60      ...       1:12
+ PREC_LS  Precipitation rate from strat c  1:96      1:60      ...       1:12
+ QDT_CONV Spec humidity tendency from con  1:96      1:60      1:24      1:12
+ QDT_LS   Spec humidity tendency from str  1:96      1:60      1:24      1:12
+ RH       relative humidity                1:96      1:60      1:24      1:12
+ SNOW_CONV
+          Frozen precip rate from convect  1:96      1:60      ...       1:12
+ SNOW_LS  Frozen precip rate from strat c  1:96      1:60      ...       1:12
+ TDT_CONV Temperature tendency from conve  1:96      1:60      1:24      1:12
+ TDT_LS   Temperature tendency from strat  1:96      1:60      1:24      1:12
+ WVP      Column integrated water vapor    1:96      1:60      ...       1:12
+ ALB_SFC  surface albedo                   1:96      1:60      ...       1:12
+ LWDN_SFC LW flux down at surface          1:96      1:60      ...       1:12
+ LWDN_SFC_CLR
+          clear skyLW flux down at surfac  1:96      1:60      ...       1:12
+ LWUP_SFC LW flux up at surface            1:96      1:60      ...       1:12
+ LWUP_SFC_CLR
+          clear skyLW flux up at surface   1:96      1:60      ...       1:12
+ NETRAD_TOA
+          net radiation (lw + sw) at toa   1:96      1:60      ...       1:12
+ NETRAD_TOA_CLR
+          clear skynet radiation (lw + sw  1:96      1:60      ...       1:12
+ OLR      outgoing longwave radiation      1:96      1:60      ...       1:12
+ OLR_CLR  clear skyoutgoing longwave radi  1:96      1:60      ...       1:12
+ QO3      ozone mixing ratio               1:96      1:60      1:24      1:12
+ QO3_COL  ozone column                     1:96      1:60      ...       1:12
+ SWDN_SFC SW flux down at surface          1:96      1:60      ...       1:12
+ SWDN_SFC_CLR
+          clear skySW flux down at surfac  1:96      1:60      ...       1:12
+ SWUP_SFC SW flux up at surface            1:96      1:60      ...       1:12
+ SWUP_SFC_CLR
+          clear skySW flux up at surface   1:96      1:60      ...       1:12
+ SWDN_TOA SW flux down at TOA              1:96      1:60      ...       1:12
+ SWDN_TOA_CLR
+          clear skySW flux down at TOA     1:96      1:60      ...       1:12
+ SWUP_TOA SW flux up at TOA                1:96      1:60      ...       1:12
+ SWUP_TOA_CLR
+          clear skySW flux up at TOA       1:96      1:60      ...       1:12
+ TDT_LW   temperature tendency for LW rad  1:96      1:60      1:24      1:12
+ TDT_LW_CLR
+          clear skytemperature tendency f  1:96      1:60      1:24      1:12
+ TDT_SW   temperature tendency for SW rad  1:96      1:60      1:24      1:12
+ TDT_SW_CLR
+          clear skytemperature tendency f  1:96      1:60      1:24      1:12
+ NETLW_LIN_TROP
+          net LW flux at linear tropopaus  1:96      1:60      ...       1:12
+ NETLW_LIN_TROP_CLR
+          clear skynet LW flux at linear   1:96      1:60      ...       1:12
+ NETLW_200HPA
+          net LW flux at 200 hPa           1:96      1:60      ...       1:12
+ NETLW_200HPA_CLR
+          clear skynet LW flux at 200 hPa  1:96      1:60      ...       1:12
+ SWDN_LIN_TROP
+          SW flux down at linear tropopau  1:96      1:60      ...       1:12
+ SWDN_LIN_TROP_CLR
+          clear skySW flux down at linear  1:96      1:60      ...       1:12
+ SWDN_200HPA
+          SW flux down at 200 hPa          1:96      1:60      ...       1:12
+ SWDN_200HPA_CLR
+          clear skySW flux down at 200 hP  1:96      1:60      ...       1:12
+ SWUP_LIN_TROP
+          SW flux up at linear tropopause  1:96      1:60      ...       1:12
+ SWUP_LIN_TROP_CLR
+          clear skySW flux up at linear t  1:96      1:60      ...       1:12
+ SWUP_200HPA
+          SW flux up at 200 hPa            1:96      1:60      ...       1:12
+ SWUP_200HPA_CLR
+          clear skySW flux up at 200 hPa   1:96      1:60      ...       1:12
+ MC       Cumulus Mass Flux from RAS       1:96      1:60      1:25      1:12
+ QDT_VDIF Spec humidity tendency from ver  1:96      1:60      1:24      1:12
+ TDT_VDIF Temperature tendency from vert   1:96      1:60      1:24      1:12
+ UDT_VDIF Zonal wind tendency from vert d  1:96      1:60      1:24      1:12
+ VDT_VDIF Meridional wind tendency from v  1:96      1:60      1:24      1:12
+ AVERAGE_T1
+          Start time for average period    ...       ...       ...       1:12
+ AVERAGE_T2
+          End time for average period      ...       ...       ...       1:12
+ AVERAGE_DT
+          Length of average period         ...       ...       ...       1:12
+ 
