@@ -1,4 +1,4 @@
-# Environmental Statistics, Method and Algorithm
+# Environmental Statistics and Modeling, Method and Algorithm
 
 A collection of python notebook will be created from my previous study:
 * Undergraduate - Environmental Science, _Hong Kong_
