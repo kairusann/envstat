@@ -1,6 +1,6 @@
 # Environmental Statistics and Modeling, Methods and Algorithms
 This is a collection of environmental models useful in academic research, consultacy, policy making and etc. The fundamentals of these models will be briefly introduced together with their documentation and tutorials. Some of my early work involved the use of these models are also posted here.  
-I try to cover all types of model useful in environmental research. Though this is not the only or the last repository, I will put all my effort to make it one of the best. All readers all welcome to commit updates to this document. 
+I try to cover all types of model useful in environmental research. Though this is not the only or the last repository, I will put all my effort to make it one of the best. In ideal case, I will create an example with detailed explanation in Python notebook. 
 
 ### Table of Contents
 * [Climate](#climate)
@@ -12,6 +12,8 @@ I try to cover all types of model useful in environmental research. Though this 
 * [Data-Driven](#data-driven)
 * [Sample Works](#sample-works)
 
+### Mathematical Simulation
+Models appeared in this section are mainly based on rules of physics such as mass balance and energy balance. 
 #### Climate
 * Box Models
 * Zero-dimensional Models
@@ -22,23 +24,29 @@ I try to cover all types of model useful in environmental research. Though this 
 #### Meteorology/Weather
 * Weather Research Forecasting (WRF) Model
 
-### Air Quality  
+#### Air Quality  
 * Dispersion Models
 * Photochemical Models
 * Receptor Models
 * Back-Trajactory Models
 
-### Hydrology
+#### Hydrology
 * Stochastic Models
 * Process-Based Models
 * 
 
-### Water Quality
+#### Water Quality
 * Aquasim
 * 
 
-### Management
-* 1
+#### Management
+* Linear Programming
+* Nonlinear Programming
+* Integer Programming
+* Stochastic Programming
+* Dynamic Programming
+* [Partially Observable Markov Decison Process](http://www.pomdp.org/tutorial/) - POMDP 
+
 
 ## Data-Driven
 #### Regression Models
