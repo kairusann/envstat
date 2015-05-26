@@ -15,14 +15,14 @@ I try to cover all types of model useful in environmental research. Though this 
 ### Mathematical Simulation
 Models appeared in this section are mainly based on rules of physics such as mass balance and energy balance. 
 #### Climate
-* Box Models
-* Zero-dimensional Models
+* [Box Models](http://rstb.royalsocietypublishing.org/content/royptb/365/1545/1349.full.pdf) - A paper published by Johns Hopkins University 
+* Zero-dimensional Models - radiative balance
 * Radiative-Convective Models
 * General Circulation Models (GCMs)
 * [pyCMBS](https://github.com/pygeo/pycmbs) - A neat solution for climate data from Python
 
 #### Meteorology/Weather
-* Weather Research Forecasting (WRF) Model
+* [Weather Research Forecasting (WRF) Model](http://www.wrf-model.org/index.php) - "a next-generation mesoscale numerical weather prediction system designed for both atmospheric research and operational forecasting needs."
 
 #### Air Quality  
 * Dispersion Models
