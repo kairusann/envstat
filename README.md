@@ -49,6 +49,8 @@ Models appeared in this section are mainly based on rules of physics such as mas
 
 
 ## Data-Driven
+Models appeared in this section are based on statistical learning and machine learning theory, where the performance of model depends heavily on the availability of data. 
+
 #### Regression Models
 * Linear Regression
 * Generalized Linear Models (GLMs) 
