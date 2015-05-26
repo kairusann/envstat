@@ -41,17 +41,36 @@ I try to cover all types of model useful in environmental research. Though this 
 * 1
 
 ## Data-Driven
-#### Independent Case
+#### Regression Models
+* Linear Regression
+* Generalized Linear Models (GLMs) 
+* Generalized Additive Models (GAMs)
 
-#### Temporal
+#### Dimension Reduction
+* RIDGE/LASSO
+* Principle Componant Analysis (PCA)
 
-#### Spatial
+#### Classification Models
+* Classification and Regression Trees (CART)
+* Support Vector Machine (SVM) 
+* K-Mean
 
-#### Points
+#### Black-boxed Models
+* Random Forest
+* Artificial Neural Networks (ANN)
+* [Baysian Additive Regression Trees (BART)](http://www-stat.wharton.upenn.edu/~edgeorge/Research_papers/BART%20June%2008.pdf)
 
-#### Grid
+#### Time Series Models
+* Autoregressive Integrated Moving Average Model (ARIMA)
 
-#### Raster
+#### Spatial Models
+* Quadrat Counting
+* Density Estimation
+* Inverse Distance Weight 
+* Krigging
+
+#### Raster Analysis 
+* Normalized Difference Vegetation Index (NDVI)
 
 ### Sample Works
 A collection of python notebook will be created from my previous study:
