@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Environmental Statistics and Modeling, Methods and Algorithms
 This is a collection of environmental models useful in academic research, consultancy, policy making etc. The fundamentals of these models will be briefly introduced together with their documentation and tutorials. Some of my early work involved the use of these models are also posted here. I try to cover all types of model useful in environmental research. Though this is not the only or the last repository, I will put all my effort to make it one of the best. In ideal case, I will create an example with detailed explanation in Python notebook. 
 
@@ -190,4 +189,3 @@ A collection of python notebook will be created from my previous study:
 * Graduate - Geography and Environmental Engineering, _Maryland_
 
  * [Weighted Sum Application](http://nbviewer.ipython.org/github/kairusann/envstat/blob/master/notebook/primer.ipynb)
->>>>>>> origin/master
