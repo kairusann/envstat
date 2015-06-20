@@ -1,0 +1,14 @@
+,Total Number of Doctor,Total Number of Nurse,Avg Doctor to Handwash Ratio,Avg Nurse to Handwash Ratio,
+0-15000 Beds,        3,        3,       .4,      1.1,
+15001-40000 Beds,        3,        3,       .2,      1.9,
+40000+,        8,        8, .4138889, 2.170437,
+40000+,       22,       22, 5.699643, 17.43325,
+No Beds,        5,        5,        .,        .,
+1-5 Beds,        7,        7, .6666667, 1.333333,
+5+ Beds,       24,       24, 3.494888, 13.46604,
+Hospital,       24,       24, 3.494888, 12.93638,
+Health Center/Clinic,       52,       53, .3169192, 2.240597,
+Chemist/Pharmacy,        0,        0,        .,        .,
+Others,        3,        3,        2, 2.333333,
+
+
